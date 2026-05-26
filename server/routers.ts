@@ -33,6 +33,50 @@ export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    
+    // NOVA ROTA DE LOGIN EXCLUSIVA PARA A RODOTRANSFER
+    login: publicProcedure
+      .input(
+        z.object({
+          username: z.string(),
+          password: z.string(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const expectedUser = process.env.ADMIN_USERNAME || "RODOTRANSFER";
+        const expectedPass = process.env.JWT_SECRET || "Rodo1704";
+
+        // Validação da senha e usuário fixos
+        if (
+          input.username.toUpperCase() !== expectedUser.toUpperCase() ||
+          input.password !== expectedPass
+        ) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Usuário ou senha incorretos.",
+          });
+        }
+
+        // Criar uma sessão simulada para o motorista logado
+        const sessionUser = {
+          id: 1,
+          openId: "admin",
+          name: "Rodotransfer Operador",
+          email: "contato@rodotransfer.com",
+          role: "admin",
+        };
+
+        // Salva o cookie de autenticação para o site saber que o usuário está logado
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        // Aqui usamos uma string simples simulada para o token de sessão ativa
+        ctx.res.cookie(COOKIE_NAME, "sessao_rodotransfer_ativa", cookieOptions);
+
+        return {
+          success: true,
+          user: sessionUser,
+        };
+      }),
+
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -43,7 +87,6 @@ export const appRouter = router({
   }),
 
   refueling: router({
-    // Criar novo abastecimento
     create: protectedProcedure
       .input(refuelingInputSchema)
       .mutation(async ({ input, ctx }) => {
@@ -53,17 +96,16 @@ export const appRouter = router({
           plate: input.plate,
           driverName: input.driverName,
           fuelType: input.fuelType,
-          pricePerLiter: input.pricePerLiter.toString(),
-          litersRefueled: input.litersRefueled.toString(),
-          totalPrice: input.totalPrice.toString(),
+          pricePerLiter: input.pricePerLiter,
+          litersRefueled: input.litersRefueled,
+          totalPrice: input.totalPrice,
           gasStation: input.gasStation,
           km: input.km,
-          notes: input.notes,
+          notes: input.notes || "",
         });
         return refueling;
       }),
 
-    // Listar abastecimentos do usuário
     list: protectedProcedure
       .input(
         z.object({
@@ -80,7 +122,6 @@ export const appRouter = router({
         return refuelings;
       }),
 
-    // Obter detalhes de um abastecimento
     get: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
@@ -94,7 +135,6 @@ export const appRouter = router({
         return refueling;
       }),
 
-    // Atualizar abastecimento
     update: protectedProcedure
       .input(
         z.object({
@@ -103,14 +143,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const updateData: any = { ...input.data };
-        if (updateData.pricePerLiter !== undefined) {
-          updateData.pricePerLiter = updateData.pricePerLiter.toString();
-        }
-        if (updateData.litersRefueled !== undefined) {
-          updateData.litersRefueled = updateData.litersRefueled.toString();
-        }
-        const updated = await updateRefueling(input.id, ctx.user.id, updateData);
+        const updated = await updateRefueling(input.id, ctx.user.id, input.data);
         if (!updated) {
           throw new TRPCError({
             code: "NOT_FOUND",
@@ -120,7 +153,6 @@ export const appRouter = router({
         return updated;
       }),
 
-    // Deletar abastecimento
     delete: protectedProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input, ctx }) => {
@@ -134,23 +166,20 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    // Obter estatísticas do usuário
     stats: protectedProcedure.query(async ({ ctx }) => {
       return await getRefuelingStats(ctx.user.id);
     }),
 
-    // Upload de cupom fiscal
     uploadReceipt: protectedProcedure
       .input(
         z.object({
           refuelingId: z.number(),
-          fileData: z.string(), // base64 encoded
+          fileData: z.string(),
           fileName: z.string(),
           mimeType: z.string(),
         })
       )
       .mutation(async ({ input, ctx }) => {
-        // Verificar se o abastecimento pertence ao usuário
         const refueling = await getRefuelingById(input.refuelingId, ctx.user.id);
         if (!refueling) {
           throw new TRPCError({
@@ -159,35 +188,21 @@ export const appRouter = router({
           });
         }
 
-        // Converter base64 para buffer
         const buffer = Buffer.from(input.fileData, "base64");
-
-        // Fazer upload para S3
         const storageKey = `receipts/${ctx.user.id}/${input.refuelingId}-${Date.now()}-${input.fileName}`;
-        const { key, url } = await storagePut(
-          storageKey,
-          buffer,
-          input.mimeType
-        );
+        const { url } = await storagePut(storageKey, buffer, input.mimeType);
 
-        // Salvar referência no banco de dados
         const receipt = await createReceipt({
           refuelingId: input.refuelingId,
-          storageKey: key,
-          storageUrl: url,
-          fileName: input.fileName,
-          mimeType: input.mimeType,
-          fileSize: buffer.length,
+          url: url,
         });
 
         return receipt;
       }),
 
-    // Obter cupom de um abastecimento
     getReceipt: protectedProcedure
       .input(z.object({ refuelingId: z.number() }))
       .query(async ({ input, ctx }) => {
-        // Verificar se o abastecimento pertence ao usuário
         const refueling = await getRefuelingById(input.refuelingId, ctx.user.id);
         if (!refueling) {
           throw new TRPCError({
@@ -195,12 +210,9 @@ export const appRouter = router({
             message: "Abastecimento não encontrado",
           });
         }
-
-        const receipt = await getReceiptByRefuelingId(input.refuelingId);
-        return receipt;
+        return await getReceiptByRefuelingId(input.refuelingId);
       }),
 
-    // Exportar dados em CSV
     exportCSV: protectedProcedure
       .input(
         z.object({
@@ -211,59 +223,38 @@ export const appRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const refuelings = await getRefuelingsByUserId(ctx.user.id, 10000, 0);
-
-        // Filtrar por datas e placa se fornecido
         let filtered = refuelings;
         if (input.startDate) {
-          filtered = filtered.filter(
-            (r) => new Date(r.date) >= input.startDate!
-          );
+          filtered = filtered.filter(r => new Date(r.date) >= input.startDate!);
         }
         if (input.endDate) {
-          filtered = filtered.filter(
-            (r) => new Date(r.date) <= input.endDate!
-          );
+          filtered = filtered.filter(r => new Date(r.date) <= input.endDate!);
         }
         if (input.plate) {
-          filtered = filtered.filter((r) => r.plate === input.plate);
+          filtered = filtered.filter(r => r.plate === input.plate);
         }
 
-        // Gerar CSV
-        const headers = [
-          "Data",
-          "Placa",
-          "Tipo Combustível",
-          "Valor por Litro",
-          "Litros Abastecidos",
-          "Valor Total",
-          "Posto",
-          "KM",
-          "Notas",
-        ];
-
-        const rows = filtered.map((r) => [
+        const headers = ["Data", "Placa", "Motorista", "Combustível", "Valor/Litro", "Litros", "Total", "Posto", "KM", "Notas"];
+        const rows = filtered.map(r => [
           new Date(r.date).toLocaleDateString("pt-BR"),
           r.plate,
-          r.fuelType,
-          r.pricePerLiter,
+          (r as any).driverName || "",
+          (r as any).fuelType || "",
+          (r as any).pricePerLiter || "",
           r.litersRefueled,
           r.totalPrice,
-          r.gasStation,
+          (r as any).gasStation || "",
           r.km,
-          r.notes || "",
+          (r as any).notes || "",
         ]);
 
-        const csv =
-          [headers, ...rows].map((row) => row.map((cell) => `"${cell}"`).join(",")).join("\n") +
-          "\n";
-
+        const csv = [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(",")).join("\n") + "\n";
         return {
           csv,
           fileName: `abastecimentos-${new Date().toISOString().split("T")[0]}.csv`,
         };
       }),
 
-    // Exportar dados em JSON
     exportJSON: protectedProcedure
       .input(
         z.object({
@@ -274,27 +265,18 @@ export const appRouter = router({
       )
       .query(async ({ input, ctx }) => {
         const refuelings = await getRefuelingsByUserId(ctx.user.id, 10000, 0);
-
-        // Filtrar por datas e placa se fornecido
         let filtered = refuelings;
         if (input.startDate) {
-          filtered = filtered.filter(
-            (r) => new Date(r.date) >= input.startDate!
-          );
+          filtered = filtered.filter(r => new Date(r.date) >= input.startDate!);
         }
         if (input.endDate) {
-          filtered = filtered.filter(
-            (r) => new Date(r.date) <= input.endDate!
-          );
+          filtered = filtered.filter(r => new Date(r.date) <= input.endDate!);
         }
         if (input.plate) {
-          filtered = filtered.filter((r) => r.plate === input.plate);
+          filtered = filtered.filter(r => r.plate === input.plate);
         }
-
-        const json = JSON.stringify(filtered, null, 2);
-
         return {
-          json,
+          json: JSON.stringify(filtered, null, 2),
           fileName: `abastecimentos-${new Date().toISOString().split("T")[0]}.json`,
         };
       }),
