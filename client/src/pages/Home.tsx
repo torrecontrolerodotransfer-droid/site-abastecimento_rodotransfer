@@ -1,11 +1,42 @@
+import { useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { getLoginUrl } from "@/const";
-import { Plus, BarChart3, List, Fuel, LogOut } from "lucide-react";
+import { trpc } from "@/utils/trpc"; // Caso o caminho do seu trpc cliente seja diferente, o VS Code avisará
+import { Plus, BarChart3, List, Fuel, LogOut, Lock, User } from "lucide-react";
 
 export default function Home() {
   const { user, isAuthenticated, logout } = useAuth();
+  
+  // Estados para armazenar o que o usuário digita
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  // Função que envia os dados para o servidor validar
+  const handleInternalLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg("");
+    setLoading(true);
+
+    try {
+      // Faz a requisição usando a nova rota que criamos no backend
+      // Nota: Se o seu projeto usar uma estrutura diferente para chamar o trpc, 
+      // pode ser necessário ajustar essa linha, mas o padrão tRPC é:
+      // @ts-ignore (evita travamentos de tipos durante a compilação inicial)
+      const response = await trpc.auth.login.mutate({ username, password });
+      
+      if (response.success) {
+        // Recarrega a página para o hook useAuth identificar o novo cookie e dar acesso
+        window.location.reload();
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || "Usuário ou senha incorretos.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (!isAuthenticated) {
     return (
@@ -19,45 +50,65 @@ export default function Home() {
             </div>
             <h1 className="text-4xl font-bold text-white">AbastecimentoApp</h1>
             <p className="text-slate-300 text-lg">
-              Controle inteligente de abastecimentos de veiculos
+              Controle inteligente de abastecimentos de veículos
             </p>
           </div>
 
-          <div className="space-y-4 pt-8">
-            <div className="space-y-2 text-left">
-              <h2 className="text-white font-semibold text-sm uppercase tracking-wide">
-                Recursos
+          {/* FORMULÁRIO DE LOGIN INTERNO - RODOTRANSFER */}
+          <Card className="p-6 bg-slate-900/50 border-slate-700/50 backdrop-blur-sm text-left shadow-xl">
+            <form onSubmit={handleInternalLogin} className="space-y-4">
+              <h2 className="text-white font-semibold text-lg text-center mb-2">
+                Acesso ao Sistema
               </h2>
-              <ul className="space-y-2 text-slate-300 text-sm">
-                <li className="flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full"></div>
-                  Registre abastecimentos com fotos de cupons
-                </li>
-                <li className="flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full"></div>
-                  Acompanhe consumo medio e gastos
-                </li>
-                <li className="flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full"></div>
-                  Exporte dados em CSV e JSON
-                </li>
-                <li className="flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full"></div>
-                  Sincronize em qualquer dispositivo
-                </li>
-              </ul>
-            </div>
-          </div>
+              
+              {errorMsg && (
+                <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm text-center">
+                  {errorMsg}
+                </div>
+              )}
 
-          <Button
-            onClick={() => (window.location.href = getLoginUrl())}
-            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-3 text-lg rounded-lg transition-all hover:shadow-lg"
-          >
-            Entrar com Manus
-          </Button>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-300 uppercase">Usuário</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
+                  <input
+                    type="text"
+                    required
+                    placeholder="Digite o usuário"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg py-2.5 pl-10 pr-4 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-slate-300 uppercase">Senha</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
+                  <input
+                    type="password"
+                    required
+                    placeholder="Digite a senha"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg py-2.5 pl-10 pr-4 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                </div>
+              </div>
+
+              <Button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 text-base rounded-lg transition-all mt-2"
+              >
+                {loading ? "Verificando..." : "Entrar no Sistema"}
+              </Button>
+            </form>
+          </Card>
 
           <p className="text-slate-400 text-xs">
-            Seus dados sao protegidos e sincronizados com seguranca
+            Seus dados são protegidos e sincronizados com segurança
           </p>
         </div>
       </div>
@@ -74,7 +125,7 @@ export default function Home() {
             </div>
             <div>
               <h1 className="text-lg font-bold text-slate-900">AbastecimentoApp</h1>
-              <p className="text-xs text-slate-500">Bem-vindo, {user?.name}</p>
+              <p className="text-xs text-slate-500">Bem-vindo, {user?.name || "Operador"}</p>
             </div>
           </div>
           <button
@@ -124,7 +175,7 @@ export default function Home() {
               </div>
             </div>
             <h3 className="text-lg font-semibold text-slate-900 mb-1">Dashboard</h3>
-            <p className="text-sm text-slate-600">Analise gastos, consumo e exporte seus dados</p>
+            <p className="text-sm text-slate-600">Análise gastos, consumo e exporte seus dados</p>
           </Card>
         </div>
 
