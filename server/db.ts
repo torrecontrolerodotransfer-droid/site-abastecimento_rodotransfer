@@ -1,199 +1,298 @@
-import { eq } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, refuelings, receipts, Refueling, InsertRefueling, Receipt, InsertReceipt } from "../drizzle/schema";
+import { GoogleSpreadsheet } from 'google-spreadsheet';
+import { JWT } from 'google-auth-library';
 import { ENV } from './_core/env';
 
-
-let _db: ReturnType<typeof drizzle> | null = null;
-
-// Lazily create the drizzle instance so local tooling can run without a DB.
-export async function getDb() {
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to connect:", error);
-      _db = null;
-    }
-  }
-  return _db;
+// Interfaces baseadas no que o seu front-end espera
+export interface InsertUser {
+  openId: string;
+  name?: string | null;
+  email?: string | null;
+  loginMethod?: string | null;
+  lastSignedIn?: Date;
+  role?: string;
 }
 
+export interface InsertRefueling {
+  userId: number;
+  plate: string;
+  km: number;
+  litersRefueled: string | number;
+  totalPrice: string | number;
+  date?: string | Date;
+}
+
+export interface Refueling extends InsertRefueling {
+  id: number;
+}
+
+export interface InsertReceipt {
+  refuelingId: number;
+  url: string;
+}
+
+export interface Receipt extends InsertReceipt {
+  id: number;
+}
+
+// Inicializa a conexão com o Google Sheets usando as variáveis do Render
+async function getSheetDoc() {
+  const privateKey = process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n') : '';
+  
+  const serviceAccountAuth = new JWT({
+    email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+    key: privateKey,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+  });
+
+  const doc = new GoogleSpreadsheet(process.env.GOOGLE_SHEET_ID || '', serviceAccountAuth);
+  await doc.loadInfo();
+  return doc;
+}
+
+// ==========================================
+// OPERAÇÕES DE USUÁRIOS
+// ==========================================
 export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
-  }
-
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
-  }
-
+  if (!user.openId) throw new Error("User openId is required for upsert");
   try {
-    const values: InsertUser = {
+    const doc = await getSheetDoc();
+    const sheet = doc.sheetsByTitle['usuarios'];
+    if (!sheet) throw new Error("Aba 'usuarios' não encontrada na planilha");
+
+    const rows = await sheet.getRows();
+    const existingRow = rows.find(r => r.get('openId') === user.openId);
+
+    const role = user.role || (user.openId === ENV.ownerOpenId ? 'admin' : 'user');
+    const dateStr = (user.lastSignedIn || new Date()).toISOString();
+
+    const rowData = {
       openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
+      name: user.name || '',
+      email: user.email || '',
+      loginMethod: user.loginMethod || '',
+      lastSignedIn: dateStr,
+      role: role
     };
 
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
+    if (existingRow) {
+      existingRow.assign(rowData);
+      await existingRow.save();
+    } else {
+      await sheet.addRow(rowData);
     }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
   } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
+    console.error("Erro ao salvar usuário no Sheets:", error);
   }
 }
 
 export async function getUserByOpenId(openId: string) {
-  const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
+  try {
+    const doc = await getSheetDoc();
+    const sheet = doc.sheetsByTitle['usuarios'];
+    if (!sheet) return undefined;
+
+    const rows = await sheet.getRows();
+    const found = rows.find(r => r.get('openId') === openId);
+
+    if (!found) return undefined;
+
+    // Retorna no formato simulando o banco de dados
+    return {
+      id: found.rowNumber, // usa o número da linha como ID numérico temporário
+      openId: found.get('openId'),
+      name: found.get('name'),
+      email: found.get('email'),
+      loginMethod: found.get('loginMethod'),
+      lastSignedIn: new Date(found.get('lastSignedIn')),
+      role: found.get('role')
+    };
+  } catch (error) {
     return undefined;
   }
-
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
-  return result.length > 0 ? result[0] : undefined;
 }
 
+// ==========================================
+// OPERAÇÕES DE ABASTECIMENTOS (REFUELINGS)
+// ==========================================
 export async function createRefueling(data: InsertRefueling): Promise<Refueling> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  const doc = await getSheetDoc();
+  const sheet = doc.sheetsByTitle['abastecimentos'];
+  if (!sheet) throw new Error("Aba 'abastecimentos' não encontrada");
 
-  const result = await db.insert(refuelings).values(data);
-  const refuelingId = result[0].insertId;
-  
-  const created = await db.select().from(refuelings).where(eq(refuelings.id, Number(refuelingId))).limit(1);
-  return created[0]!;
+  const rows = await sheet.getRows();
+  const nextId = rows.length + 1;
+  const dateStr = data.date ? new Date(data.date).toISOString() : new Date().toISOString();
+
+  const newRow = {
+    id: nextId.toString(),
+    userId: data.userId.toString(),
+    plate: data.plate,
+    km: data.km.toString(),
+    litersRefueled: data.litersRefueled.toString(),
+    totalPrice: data.totalPrice.toString(),
+    date: dateStr
+  };
+
+  await sheet.addRow(newRow);
+
+  return {
+    id: nextId,
+    ...data
+  };
 }
 
 export async function getRefuelingsByUserId(userId: number, limit = 50, offset = 0) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  const doc = await getSheetDoc();
+  const sheet = doc.sheetsByTitle['abastecimentos'];
+  if (!sheet) return [];
 
-  return await db.select().from(refuelings)
-    .where(eq(refuelings.userId, userId))
-    .orderBy((t) => t.date)
-    .limit(limit)
-    .offset(offset);
+  const rows = await sheet.getRows();
+  const userRows = rows
+    .filter(r => r.get('userId') === userId.toString())
+    .map(r => ({
+      id: Number(r.get('id')),
+      userId: Number(r.get('userId')),
+      plate: r.get('plate'),
+      km: Number(r.get('km')),
+      litersRefueled: r.get('litersRefueled'),
+      totalPrice: r.get('totalPrice'),
+      date: new Date(r.get('date'))
+    }));
+
+  return userRows.slice(offset, offset + limit);
 }
 
 export async function getRefuelingById(id: number, userId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  const doc = await getSheetDoc();
+  const sheet = doc.sheetsByTitle['abastecimentos'];
+  if (!sheet) return null;
 
-  const result = await db.select().from(refuelings)
-    .where(eq(refuelings.id, id))
-    .limit(1);
-  
-  if (!result[0] || result[0].userId !== userId) {
-    return null;
-  }
-  return result[0];
+  const rows = await sheet.getRows();
+  const found = rows.find(r => r.get('id') === id.toString() && r.get('userId') === userId.toString());
+
+  if (!found) return null;
+
+  return {
+    id: Number(found.get('id')),
+    userId: Number(found.get('userId')),
+    plate: found.get('plate'),
+    km: Number(found.get('km')),
+    litersRefueled: found.get('litersRefueled'),
+    totalPrice: found.get('totalPrice'),
+    date: new Date(found.get('date'))
+  };
 }
 
 export async function updateRefueling(id: number, userId: number, data: Partial<InsertRefueling>) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  const doc = await getSheetDoc();
+  const sheet = doc.sheetsByTitle['abastecimentos'];
+  if (!sheet) return null;
 
-  const existing = await getRefuelingById(id, userId);
-  if (!existing) return null;
+  const rows = await sheet.getRows();
+  const found = rows.find(r => r.get('id') === id.toString() && r.get('userId') === userId.toString());
 
-  await db.update(refuelings).set(data).where(eq(refuelings.id, id));
+  if (!found) return null;
+
+  if (data.plate) found.set('plate', data.plate);
+  if (data.km) found.set('km', data.km.toString());
+  if (data.litersRefueled) found.set('litersRefueled', data.litersRefueled.toString());
+  if (data.totalPrice) found.set('totalPrice', data.totalPrice.toString());
+  
+  await found.save();
   return await getRefuelingById(id, userId);
 }
 
 export async function deleteRefueling(id: number, userId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  const doc = await getSheetDoc();
+  const sheet = doc.sheetsByTitle['abastecimentos'];
+  if (!sheet) return false;
 
-  const existing = await getRefuelingById(id, userId);
-  if (!existing) return false;
+  const rows = await sheet.getRows();
+  const found = rows.find(r => r.get('id') === id.toString() && r.get('userId') === userId.toString());
 
-  await db.delete(refuelings).where(eq(refuelings.id, id));
+  if (!found) return false;
+
+  await found.delete();
   return true;
 }
 
+// ==========================================
+// COMPROVANTES E NOTAS (RECEIPTS)
+// ==========================================
 export async function createReceipt(data: InsertReceipt): Promise<Receipt> {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  const result = await db.insert(receipts).values(data);
-  const receiptId = result[0].insertId;
+  const doc = await getSheetDoc();
+  let sheet = doc.sheetsByTitle['comprovantes'];
   
-  const created = await db.select().from(receipts).where(eq(receipts.id, Number(receiptId))).limit(1);
-  return created[0]!;
+  if (!sheet) {
+    sheet = await doc.addSheet({ title: 'comprovantes', headerValues: ['id', 'refuelingId', 'url'] });
+  }
+
+  const rows = await sheet.getRows();
+  const nextId = rows.length + 1;
+
+  await sheet.addRow({
+    id: nextId.toString(),
+    refuelingId: data.refuelingId.toString(),
+    url: data.url
+  });
+
+  return {
+    id: nextId,
+    ...data
+  };
 }
 
 export async function getReceiptByRefuelingId(refuelingId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
+  const doc = await getSheetDoc();
+  const sheet = doc.sheetsByTitle['comprovantes'];
+  if (!sheet) return null;
 
-  const result = await db.select().from(receipts)
-    .where(eq(receipts.refuelingId, refuelingId))
-    .limit(1);
-  
-  return result[0] || null;
+  const rows = await sheet.getRows();
+  const found = rows.find(r => r.get('refuelingId') === refuelingId.toString());
+
+  if (!found) return null;
+
+  return {
+    id: Number(found.get('id')),
+    refuelingId: Number(found.get('refuelingId')),
+    url: found.get('url')
+  };
 }
 
+// ==========================================
+// CÁLCULO DE ESTATÍSTICAS (DASHBOARD)
+// ==========================================
 export async function getRefuelingStats(userId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-
-  const userRefuelings = await db.select().from(refuelings)
-    .where(eq(refuelings.userId, userId))
-    .orderBy((t) => t.date);
+  const doc = await getSheetDoc();
+  const sheet = doc.sheetsByTitle['abastecimentos'];
   
+  if (!sheet) {
+    return { totalSpent: 0, averageConsumption: 0, refuelingCount: 0, byPlate: {} };
+  }
+
+  const rows = await sheet.getRows();
+  const userRefuelings = rows
+    .filter(r => r.get('userId') === userId.toString())
+    .map(r => ({
+      id: Number(r.get('id')),
+      userId: Number(r.get('userId')),
+      plate: r.get('plate'),
+      km: Number(r.get('km')),
+      litersRefueled: Number(r.get('litersRefueled')),
+      totalPrice: Number(r.get('totalPrice')),
+      date: new Date(r.get('date'))
+    }))
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+
   if (userRefuelings.length === 0) {
-    return {
-      totalSpent: 0,
-      averageConsumption: 0,
-      refuelingCount: 0,
-      byPlate: {} as Record<string, { count: number; totalSpent: number; totalLiters: number; averageConsumption: number }>,
-    };
+    return { totalSpent: 0, averageConsumption: 0, refuelingCount: 0, byPlate: {} };
   }
 
   let totalSpent = 0;
   let totalLiters = 0;
   let totalDistanceKm = 0;
-  let validConsumptionReadings = 0;
   const byPlate: Record<string, { count: number; totalSpent: number; totalLiters: number; averageConsumption: number }> = {};
 
-  // Agrupar por placa e calcular consumo real
   const refuelingsByPlate: Record<string, typeof userRefuelings> = {};
   for (const refueling of userRefuelings) {
     if (!refuelingsByPlate[refueling.plate]) {
@@ -202,31 +301,25 @@ export async function getRefuelingStats(userId: number) {
     refuelingsByPlate[refueling.plate].push(refueling);
   }
 
-  // Calcular estatísticas por placa
   for (const [plate, plateRefuelings] of Object.entries(refuelingsByPlate)) {
     let plateTotalSpent = 0;
     let plateTotalLiters = 0;
     let plateDistanceKm = 0;
-    let plateValidReadings = 0;
 
-    // Calcular consumo entre abastecimentos consecutivos
     for (let i = 1; i < plateRefuelings.length; i++) {
       const prev = plateRefuelings[i - 1];
       const curr = plateRefuelings[i];
-      
       const distanceBetween = curr.km - prev.km;
-      const litersUsed = Number(curr.litersRefueled);
+      const litersUsed = curr.litersRefueled;
       
       if (distanceBetween > 0 && litersUsed > 0) {
         plateDistanceKm += distanceBetween;
         plateTotalLiters += litersUsed;
-        plateValidReadings += 1;
       }
     }
 
-    // Somar gastos totais
     for (const refueling of plateRefuelings) {
-      plateTotalSpent += Number(refueling.totalPrice);
+      plateTotalSpent += refueling.totalPrice;
     }
 
     const plateAverageConsumption = plateTotalLiters > 0 ? plateDistanceKm / plateTotalLiters : 0;
@@ -241,7 +334,6 @@ export async function getRefuelingStats(userId: number) {
     totalSpent += plateTotalSpent;
     totalLiters += plateTotalLiters;
     totalDistanceKm += plateDistanceKm;
-    validConsumptionReadings += plateValidReadings;
   }
 
   const averageConsumption = totalLiters > 0 ? totalDistanceKm / totalLiters : 0;
@@ -253,5 +345,3 @@ export async function getRefuelingStats(userId: number) {
     byPlate,
   };
 }
-
-// TODO: add more feature queries here as your schema grows.
