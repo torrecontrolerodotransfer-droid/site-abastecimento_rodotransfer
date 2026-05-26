@@ -5,8 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Plus, BarChart3, List, Fuel, LogOut, Lock, User } from "lucide-react";
 
 export default function Home() {
-  // Pegamos a função 'login' diretamente do seu hook nativo useAuth
-  const { user, isAuthenticated, logout, login } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
   
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -19,26 +18,26 @@ export default function Home() {
     setLoading(true);
 
     try {
-      // Usando o login do seu próprio sistema que já sabe a rota certa!
-      if (login) {
-        await login(username, password);
+      // Usamos uma URL absoluta simples baseada no próprio site atual para evitar o erro de "Invalid URL"
+      const loginUrl = `${window.location.origin}/api/trpc/auth.login,auth.getSession?batch=1`;
+      
+      const response = await fetch(loginUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          "0": { json: { username, password } }
+        })
+      });
+
+      if (response.ok) {
+        // Recarrega a página para o useAuth detectar o cookie de sessão gerado pelo servidor
+        window.location.reload();
       } else {
-        // Caso o seu useAuth use um objeto diferente, tentamos a chamada direta mais segura:
-        const response = await fetch("/api/trpc/auth.login,auth.getSession?batch=1", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ "0": { json: { username, password } } })
-        });
-        
-        if (response.ok) {
-          window.location.reload();
-        } else {
-          setErrorMsg("Usuário ou senha incorretos.");
-        }
+        setErrorMsg("Usuário ou senha incorretos.");
       }
     } catch (err) {
-      setErrorMsg("Erro ao realizar o acesso. Verifique as credenciais.");
-    } {
+      setErrorMsg("Erro ao conectar com o servidor de autenticação.");
+    } finally {
       setLoading(false);
     }
   };
