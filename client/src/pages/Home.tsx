@@ -5,7 +5,8 @@ import { Card } from "@/components/ui/card";
 import { Plus, BarChart3, List, Fuel, LogOut, Lock, User } from "lucide-react";
 
 export default function Home() {
-  const { user, isAuthenticated, logout } = useAuth();
+  // Pegamos a função 'login' diretamente do seu hook nativo useAuth
+  const { user, isAuthenticated, logout, login } = useAuth();
   
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -18,23 +19,26 @@ export default function Home() {
     setLoading(true);
 
     try {
-      // Fazemos a chamada direto para a API do backend, sem precisar importar o trpc
-      const response = await fetch("/api/trpc/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password })
-      });
-
-      const data = await response.json();
-      
-      if (response.ok && data.success) {
-        window.location.reload();
+      // Usando o login do seu próprio sistema que já sabe a rota certa!
+      if (login) {
+        await login(username, password);
       } else {
-        setErrorMsg(data.error || "Usuário ou senha incorretos.");
+        // Caso o seu useAuth use um objeto diferente, tentamos a chamada direta mais segura:
+        const response = await fetch("/api/trpc/auth.login,auth.getSession?batch=1", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ "0": { json: { username, password } } })
+        });
+        
+        if (response.ok) {
+          window.location.reload();
+        } else {
+          setErrorMsg("Usuário ou senha incorretos.");
+        }
       }
     } catch (err) {
-      setErrorMsg("Erro ao conectar com o servidor.");
-    } finally {
+      setErrorMsg("Erro ao realizar o acesso. Verifique as credenciais.");
+    } {
       setLoading(false);
     }
   };
@@ -106,10 +110,6 @@ export default function Home() {
               </Button>
             </form>
           </Card>
-
-          <p className="text-slate-400 text-xs">
-            Seus dados são protegidos e sincronizados com segurança
-          </p>
         </div>
       </div>
     );
@@ -128,10 +128,7 @@ export default function Home() {
               <p className="text-xs text-slate-500">Bem-vindo, {user?.name || "Operador"}</p>
             </div>
           </div>
-          <button
-            onClick={() => logout()}
-            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-          >
+          <button onClick={() => logout()} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
             <LogOut className="w-5 h-5 text-slate-600" />
           </button>
         </div>
@@ -139,10 +136,7 @@ export default function Home() {
 
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <Card
-            onClick={() => (window.location.href = "/new")}
-            className="p-6 border-slate-200 shadow-sm hover:shadow-md hover:border-emerald-300 cursor-pointer transition-all group"
-          >
+          <Card onClick={() => (window.location.href = "/new")} className="p-6 border-slate-200 shadow-sm hover:shadow-md hover:border-emerald-300 cursor-pointer transition-all group">
             <div className="flex items-start justify-between mb-3">
               <div className="p-3 bg-emerald-100 group-hover:bg-emerald-200 rounded-lg transition-colors">
                 <Plus className="w-6 h-6 text-emerald-600" />
@@ -152,10 +146,7 @@ export default function Home() {
             <p className="text-sm text-slate-600">Registre um novo abastecimento com foto do cupom</p>
           </Card>
 
-          <Card
-            onClick={() => (window.location.href = "/refuelings")}
-            className="p-6 border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 cursor-pointer transition-all group"
-          >
+          <Card onClick={() => (window.location.href = "/refuelings")} className="p-6 border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 cursor-pointer transition-all group">
             <div className="flex items-start justify-between mb-3">
               <div className="p-3 bg-blue-100 group-hover:bg-blue-200 rounded-lg transition-colors">
                 <List className="w-6 h-6 text-blue-600" />
@@ -165,10 +156,7 @@ export default function Home() {
             <p className="text-sm text-slate-600">Visualize todos os seus abastecimentos registrados</p>
           </Card>
 
-          <Card
-            onClick={() => (window.location.href = "/dashboard")}
-            className="p-6 border-slate-200 shadow-sm hover:shadow-md hover:border-purple-300 cursor-pointer transition-all group"
-          >
+          <Card onClick={() => (window.location.href = "/dashboard")} className="p-6 border-slate-200 shadow-sm hover:shadow-md hover:border-purple-300 cursor-pointer transition-all group">
             <div className="flex items-start justify-between mb-3">
               <div className="p-3 bg-purple-100 group-hover:bg-purple-200 rounded-lg transition-colors">
                 <BarChart3 className="w-6 h-6 text-purple-600" />
@@ -178,21 +166,6 @@ export default function Home() {
             <p className="text-sm text-slate-600">Análise gastos, consumo e exporte seus dados</p>
           </Card>
         </div>
-
-        <Card className="p-8 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 shadow-sm">
-          <h2 className="text-2xl font-bold text-emerald-900 mb-3">Comece agora</h2>
-          <p className="text-emerald-800 mb-6">
-            Clique em "Novo Abastecimento" para registrar seu primeiro abastecimento. Tire uma foto do cupom fiscal
-            e deixe o app calcular automaticamente seus gastos e consumo.
-          </p>
-          <Button
-            onClick={() => (window.location.href = "/new")}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            Novo Abastecimento
-          </Button>
-        </Card>
       </div>
     </div>
   );
