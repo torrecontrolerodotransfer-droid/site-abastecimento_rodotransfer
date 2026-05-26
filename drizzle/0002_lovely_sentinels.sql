@@ -1,0 +1,1 @@
+ALTER TABLE `refuelings` ADD `driverName` varchar(255) NOT NULL;

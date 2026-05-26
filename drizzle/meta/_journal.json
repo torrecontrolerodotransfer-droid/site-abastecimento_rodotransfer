@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1779798198856,
+      "tag": "0000_illegal_kabuki",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1779798362808,
+      "tag": "0001_outstanding_ricochet",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1779799592126,
+      "tag": "0002_lovely_sentinels",
+      "breakpoints": true
+    }
+  ]
+}
