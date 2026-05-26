@@ -19,7 +19,7 @@ export default function Home() {
 
     try {
       // Fazemos a chamada direto para a API do backend, sem precisar importar o trpc
-      const response = await fetch("/api/auth/login", {
+      const response = await fetch("/api/trpc/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password })
