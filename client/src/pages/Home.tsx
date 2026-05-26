@@ -2,37 +2,38 @@ import { useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { trpc } from "@/utils/trpc"; // Caso o caminho do seu trpc cliente seja diferente, o VS Code avisará
 import { Plus, BarChart3, List, Fuel, LogOut, Lock, User } from "lucide-react";
 
 export default function Home() {
   const { user, isAuthenticated, logout } = useAuth();
   
-  // Estados para armazenar o que o usuário digita
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Função que envia os dados para o servidor validar
   const handleInternalLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
     setLoading(true);
 
     try {
-      // Faz a requisição usando a nova rota que criamos no backend
-      // Nota: Se o seu projeto usar uma estrutura diferente para chamar o trpc, 
-      // pode ser necessário ajustar essa linha, mas o padrão tRPC é:
-      // @ts-ignore (evita travamentos de tipos durante a compilação inicial)
-      const response = await trpc.auth.login.mutate({ username, password });
+      // Fazemos a chamada direto para a API do backend, sem precisar importar o trpc
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      });
+
+      const data = await response.json();
       
-      if (response.success) {
-        // Recarrega a página para o hook useAuth identificar o novo cookie e dar acesso
+      if (response.ok && data.success) {
         window.location.reload();
+      } else {
+        setErrorMsg(data.error || "Usuário ou senha incorretos.");
       }
-    } catch (err: any) {
-      setErrorMsg(err?.message || "Usuário ou senha incorretos.");
+    } catch (err) {
+      setErrorMsg("Erro ao conectar com o servidor.");
     } finally {
       setLoading(false);
     }
@@ -54,7 +55,6 @@ export default function Home() {
             </p>
           </div>
 
-          {/* FORMULÁRIO DE LOGIN INTERNO - RODOTRANSFER */}
           <Card className="p-6 bg-slate-900/50 border-slate-700/50 backdrop-blur-sm text-left shadow-xl">
             <form onSubmit={handleInternalLogin} className="space-y-4">
               <h2 className="text-white font-semibold text-lg text-center mb-2">
