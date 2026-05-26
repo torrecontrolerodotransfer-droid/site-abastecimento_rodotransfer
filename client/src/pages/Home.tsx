@@ -2,11 +2,10 @@ import { useState } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Plus, BarChart3, List, Fuel, LogOut, Lock, User } from "lucide-react";
+import { User, Lock, Fuel, LogOut, Plus, List, BarChart3 } from "lucide-react";
 
 export default function Home() {
-  const { user, isAuthenticated, logout, login } = useAuth();
-  
+  const { user, isAuthenticated, logout } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
@@ -18,96 +17,96 @@ export default function Home() {
     setLoading(true);
 
     try {
-      // 1. Tenta usar a função de login oficial injetada pelo useAuth
-      if (login) {
-        await login(username, password);
+      // Requisição direta por rota relativa, eliminando o erro de URL do tRPC
+      const response = await fetch("/api/trpc/auth.login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          json: { username, password }
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && !data.error) {
         window.location.reload();
       } else {
-        // 2. Caso o hook não exponha o login diretamente, fazemos uma chamada limpa
-        // Sem texto manual complexo, evitando o erro de "Invalid URL" no build do Vite
-        const response = await fetch("/api/trpc/auth.login?batch=1", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ "0": { json: { username, password } } })
-        });
-
-        if (response.ok) {
-          window.location.reload();
-        } else {
-          setErrorMsg("Usuário ou senha incorretos.");
-        }
+        const errorDetail = data.error?.json?.message || "Usuário ou senha incorretos.";
+        setErrorMsg(errorDetail);
+        setLoading(false);
       }
     } catch (err) {
-      setErrorMsg("Erro ao conectar com o servidor.");
-    } finally {
       setLoading(false);
+      setErrorMsg("Erro ao conectar com o servidor.");
     }
   };
 
+  // DESIGN CORRETO: Fundo Bege
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-emerald-900 to-slate-900 flex flex-col items-center justify-center px-4 py-8">
-        <div className="max-w-md w-full space-y-8 text-center">
-          <div className="space-y-3">
-            <div className="flex justify-center">
-              <div className="p-4 bg-emerald-500/10 rounded-2xl">
-                <Fuel className="w-12 h-12 text-emerald-400" />
-              </div>
-            </div>
-            <h1 className="text-4xl font-bold text-white">AbastecimentoApp</h1>
-            <p className="text-slate-300 text-lg">
-              Controle inteligente de abastecimentos de veículos
-            </p>
+      <div className="min-h-screen bg-[#FAF9F6] flex flex-col items-center justify-center px-4 py-8">
+        <div className="max-w-md w-full space-y-6 text-center">
+          
+          {/* LOGOTIPO CENTRALIZADO COM FILTRO ESCURO */}
+          <div className="flex justify-center mb-2">
+            <img 
+              src="https://i.ibb.co/RG2bmMsv/Logo-branca.png" 
+              alt="Logo Empresa" 
+              className="max-w-[280px] h-auto object-contain"
+              style={{ filter: "brightness(0.15)" }} 
+            />
           </div>
 
-          <Card className="p-6 bg-slate-900/50 border-slate-700/50 backdrop-blur-sm text-left shadow-xl">
+          <h1 className="text-2xl font-bold text-[#2F4F4F]">Sistema de Abastecimento</h1>
+          <p className="text-emerald-800 font-medium text-sm tracking-wider uppercase">Centro de Operações Logísticas</p>
+
+          <Card className="p-6 bg-[#f3f1eb] border-slate-300/60 shadow-md text-left">
             <form onSubmit={handleInternalLogin} className="space-y-4">
-              <h2 className="text-white font-semibold text-lg text-center mb-2">
-                Acesso ao Sistema
-              </h2>
-              
               {errorMsg && (
-                <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm text-center">
+                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-700 text-sm text-center font-medium">
                   {errorMsg}
                 </div>
               )}
 
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-300 uppercase">Usuário</label>
+                <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Usuário</label>
                 <div className="relative">
-                  <User className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
+                  <User className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
                   <input
                     type="text"
                     required
-                    placeholder="Digite o usuário"
+                    placeholder="Digite seu usuário"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg py-2.5 pl-10 pr-4 text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-white border border-slate-300 rounded-lg py-2 pl-10 pr-4 text-slate-800 focus:outline-none focus:border-[#E9967A] focus:ring-1 focus:ring-[#E9967A]"
                   />
                 </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-medium text-slate-300 uppercase">Senha</label>
+                <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Senha</label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
+                  <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
                   <input
                     type="password"
                     required
-                    placeholder="Digite a senha"
+                    placeholder="Digite sua senha"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg py-2.5 pl-10 pr-4 text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-white border border-slate-300 rounded-lg py-2 pl-10 pr-4 text-slate-800 focus:outline-none focus:border-[#E9967A] focus:ring-1 focus:ring-[#E9967A]"
                   />
                 </div>
               </div>
 
+              {/* BOTÃO CORAL / SALMÃO */}
               <Button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-semibold py-2.5 text-base rounded-lg transition-all mt-2"
+                className="w-full bg-[#E9967A] hover:bg-[#df8567] text-white font-bold py-2.5 text-base rounded-lg transition-colors mt-4 shadow-sm"
               >
-                {loading ? "Verificando..." : "Entrar no Sistema"}
+                {loading ? "Verificando..." : "Entrar"}
               </Button>
             </form>
           </Card>
@@ -117,19 +116,19 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+    <div className="min-h-screen bg-slate-50">
       <div className="sticky top-0 z-10 bg-white border-b border-slate-200 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-emerald-100 rounded-lg">
+            <div className="p-2 bg-emerald-500/10 rounded-lg">
               <Fuel className="w-5 h-5 text-emerald-600" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-slate-900">AbastecimentoApp</h1>
-              <p className="text-xs text-slate-500">Bem-vindo, {user?.name || "Operador"}</p>
+              <h1 className="text-base font-bold text-slate-900">Sistema de Abastecimento</h1>
+              <p className="text-xs text-slate-500">Operador: {user?.name || "Rodotransfer"}</p>
             </div>
           </div>
-          <button onClick={() => logout()} className="p-2 hover:bg-slate-100 rounded-lg">
+          <button onClick={() => logout()} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
             <LogOut className="w-5 h-5 text-slate-600" />
           </button>
         </div>
@@ -137,34 +136,34 @@ export default function Home() {
 
       <div className="max-w-4xl mx-auto px-4 py-8">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <Card onClick={() => (window.location.href = "/new")} className="p-6 border-slate-200 shadow-sm hover:shadow-md hover:border-emerald-300 cursor-pointer transition-all group">
+          <Card onClick={() => (window.location.href = "/new")} className="p-6 bg-white border-slate-200 shadow-sm hover:shadow-md hover:border-[#E9967A] cursor-pointer transition-all group">
             <div className="flex items-start justify-between mb-3">
-              <div className="p-3 bg-emerald-100 group-hover:bg-emerald-200 rounded-lg">
+              <div className="p-3 bg-emerald-500/10 group-hover:bg-emerald-500/20 rounded-lg">
                 <Plus className="w-6 h-6 text-emerald-600" />
               </div>
             </div>
             <h3 className="text-lg font-semibold text-slate-900 mb-1">Novo Abastecimento</h3>
-            <p className="text-sm text-slate-600">Registre um novo abastecimento com foto do cupom</p>
+            <p className="text-sm text-slate-600">Registre dados e foto do cupom fiscal</p>
           </Card>
 
-          <Card onClick={() => (window.location.href = "/refuelings")} className="p-6 border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 cursor-pointer transition-all group">
+          <Card onClick={() => (window.location.href = "/refuelings")} className="p-6 bg-white border-slate-200 shadow-sm hover:shadow-md hover:border-[#E9967A] cursor-pointer transition-all group">
             <div className="flex items-start justify-between mb-3">
-              <div className="p-3 bg-blue-100 group-hover:bg-blue-200 rounded-lg">
+              <div className="p-3 bg-blue-500/10 group-hover:bg-blue-500/20 rounded-lg">
                 <List className="w-6 h-6 text-blue-600" />
               </div>
             </div>
             <h3 className="text-lg font-semibold text-slate-900 mb-1">Abastecimentos</h3>
-            <p className="text-sm text-slate-600">Visualize todos os seus abastecimentos registrados</p>
+            <p className="text-sm text-slate-600">Lista completa dos registros efetuados</p>
           </Card>
 
-          <Card onClick={() => (window.location.href = "/dashboard")} className="p-6 border-slate-200 shadow-sm hover:shadow-md hover:border-purple-300 cursor-pointer transition-all group">
+          <Card onClick={() => (window.location.href = "/dashboard")} className="p-6 bg-white border-slate-200 shadow-sm hover:shadow-md hover:border-[#E9967A] cursor-pointer transition-all group">
             <div className="flex items-start justify-between mb-3">
-              <div className="p-3 bg-purple-100 group-hover:bg-purple-200 rounded-lg">
+              <div className="p-3 bg-purple-500/10 group-hover:bg-purple-500/20 rounded-lg">
                 <BarChart3 className="w-6 h-6 text-purple-600" />
               </div>
             </div>
             <h3 className="text-lg font-semibold text-slate-900 mb-1">Dashboard</h3>
-            <p className="text-sm text-slate-600">Análise gastos, consumo e exporte seus dados</p>
+            <p className="text-sm text-slate-600">Análise de consumos e relatórios corporativos</p>
           </Card>
         </div>
       </div>
