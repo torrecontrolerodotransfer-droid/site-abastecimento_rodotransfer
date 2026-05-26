@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Plus, BarChart3, List, Fuel, LogOut, Lock, User } from "lucide-react";
 
 export default function Home() {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, login } = useAuth();
   
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -18,25 +18,27 @@ export default function Home() {
     setLoading(true);
 
     try {
-      // Usamos uma URL absoluta simples baseada no próprio site atual para evitar o erro de "Invalid URL"
-      const loginUrl = `${window.location.origin}/api/trpc/auth.login,auth.getSession?batch=1`;
-      
-      const response = await fetch(loginUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          "0": { json: { username, password } }
-        })
-      });
-
-      if (response.ok) {
-        // Recarrega a página para o useAuth detectar o cookie de sessão gerado pelo servidor
+      // 1. Tenta usar a função de login oficial injetada pelo useAuth
+      if (login) {
+        await login(username, password);
         window.location.reload();
       } else {
-        setErrorMsg("Usuário ou senha incorretos.");
+        // 2. Caso o hook não exponha o login diretamente, fazemos uma chamada limpa
+        // Sem texto manual complexo, evitando o erro de "Invalid URL" no build do Vite
+        const response = await fetch("/api/trpc/auth.login?batch=1", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ "0": { json: { username, password } } })
+        });
+
+        if (response.ok) {
+          window.location.reload();
+        } else {
+          setErrorMsg("Usuário ou senha incorretos.");
+        }
       }
     } catch (err) {
-      setErrorMsg("Erro ao conectar com o servidor de autenticação.");
+      setErrorMsg("Erro ao conectar com o servidor.");
     } finally {
       setLoading(false);
     }
@@ -80,7 +82,7 @@ export default function Home() {
                     placeholder="Digite o usuário"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg py-2.5 pl-10 pr-4 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg py-2.5 pl-10 pr-4 text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>
@@ -95,7 +97,7 @@ export default function Home() {
                     placeholder="Digite a senha"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg py-2.5 pl-10 pr-4 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-lg py-2.5 pl-10 pr-4 text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>
@@ -127,7 +129,7 @@ export default function Home() {
               <p className="text-xs text-slate-500">Bem-vindo, {user?.name || "Operador"}</p>
             </div>
           </div>
-          <button onClick={() => logout()} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+          <button onClick={() => logout()} className="p-2 hover:bg-slate-100 rounded-lg">
             <LogOut className="w-5 h-5 text-slate-600" />
           </button>
         </div>
@@ -137,7 +139,7 @@ export default function Home() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <Card onClick={() => (window.location.href = "/new")} className="p-6 border-slate-200 shadow-sm hover:shadow-md hover:border-emerald-300 cursor-pointer transition-all group">
             <div className="flex items-start justify-between mb-3">
-              <div className="p-3 bg-emerald-100 group-hover:bg-emerald-200 rounded-lg transition-colors">
+              <div className="p-3 bg-emerald-100 group-hover:bg-emerald-200 rounded-lg">
                 <Plus className="w-6 h-6 text-emerald-600" />
               </div>
             </div>
@@ -147,7 +149,7 @@ export default function Home() {
 
           <Card onClick={() => (window.location.href = "/refuelings")} className="p-6 border-slate-200 shadow-sm hover:shadow-md hover:border-blue-300 cursor-pointer transition-all group">
             <div className="flex items-start justify-between mb-3">
-              <div className="p-3 bg-blue-100 group-hover:bg-blue-200 rounded-lg transition-colors">
+              <div className="p-3 bg-blue-100 group-hover:bg-blue-200 rounded-lg">
                 <List className="w-6 h-6 text-blue-600" />
               </div>
             </div>
@@ -157,7 +159,7 @@ export default function Home() {
 
           <Card onClick={() => (window.location.href = "/dashboard")} className="p-6 border-slate-200 shadow-sm hover:shadow-md hover:border-purple-300 cursor-pointer transition-all group">
             <div className="flex items-start justify-between mb-3">
-              <div className="p-3 bg-purple-100 group-hover:bg-purple-200 rounded-lg transition-colors">
+              <div className="p-3 bg-purple-100 group-hover:bg-purple-200 rounded-lg">
                 <BarChart3 className="w-6 h-6 text-purple-600" />
               </div>
             </div>
