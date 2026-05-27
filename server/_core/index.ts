@@ -10,17 +10,17 @@ import { ENV } from './env.js';
 
 const app = express();
 
-// Middleware essencial para interpretar requisições
+// Middlewares essenciais para interpretar requisições do Express
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// --- CONFIGURAÇÃO PARA SERVIR O FRONTEND ---
+// --- CONFIGURAÇÃO PARA SERVIR O FRONTEND COMPILADO ---
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const publicPath = path.resolve(process.cwd(), "dist/public");
 app.use(express.static(publicPath));
 
-// --- CONEXÃO AUTHENTICADA COM O GOOGLE SHEETS ---
+// --- CONEXÃO AUTENTICADA COM O GOOGLE SHEETS ---
 async function getSheetDoc() {
   const privateKey = ENV.googlePrivateKey ? ENV.googlePrivateKey.replace(/\\n/g, '\n') : '';
   const serviceAccountAuth = new JWT({
@@ -101,7 +101,7 @@ app.use(
   })
 );
 
-// Rota curinga (SPA Fallback) para o roteamento do frontend funcionar perfeitamente
+// Rota curinga (SPA Fallback) para o roteamento interno das páginas do frontend funcionar
 app.get("*", (req, res) => {
   res.sendFile(path.join(publicPath, "index.html"));
 });
