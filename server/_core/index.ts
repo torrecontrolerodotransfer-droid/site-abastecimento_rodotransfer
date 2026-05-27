@@ -24,23 +24,18 @@ async function getSheetDoc() {
   const sheetId = (process.env.GOOGLE_SHEET_ID || "").trim();
   let rawKey = process.env.GOOGLE_PRIVATE_KEY || "";
 
-  // 1. Limpa aspas externas inseridas pelo Render
   if (rawKey.startsWith('"') && rawKey.endsWith('"')) {
     rawKey = rawKey.slice(1, -1);
   }
 
-  // 2. CORREÇÃO DA CHAVE: Reconstrói as quebras de linha reais se o texto vier com '\n' escrito por extenso
   let privateKey = rawKey;
   if (rawKey.includes('\\n')) {
     privateKey = rawKey.split('\\n').join('\n');
   }
 
-  // Garante que o cabeçalho e rodapé estejam presentes e limpos
-  privateKey = privateKey.trim();
-
   const serviceAccountAuth = new JWT({
     email: email,
-    key: privateKey,
+    key: privateKey.trim(),
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
 
@@ -49,7 +44,7 @@ async function getSheetDoc() {
   return doc;
 }
 
-// --- INICIALIZAÇÃO DO ROTEADOR TRPC NATIVO ---
+// --- ROTEADOR TRPC NATIVO ---
 const t = initTRPC.create();
 
 const appRouter = t.router({
@@ -57,33 +52,50 @@ const appRouter = t.router({
     .input(z.any())
     .mutation(async ({ input }) => {
       try {
+        // Limpa espaços extras que o usuário possa digitar sem querer no formulário
         const emailInput = (input?.email || input?.json?.email || "").toLowerCase().trim();
         const passwordInput = (input?.password || input?.json?.password || "").trim();
 
-        console.log(` Tentativa de login para: ${emailInput}`);
+        console.log(`Tentativa de login para: ${emailInput}`);
 
-        // Tentativa de conexão com a planilha usando a chave tratada
         const doc = await getSheetDoc();
         const sheet = doc.sheetsByTitle['usuarios'];
         
         if (!sheet) {
           throw new TRPCError({
             code: 'NOT_FOUND',
-            message: "Aba 'usuarios' não localizada na planilha.",
+            message: "Aba 'usuarios' não localizada.",
           });
         }
 
         const rows = await sheet.getRows();
-        const found = rows.find((r) => String(r.get('email') || "").toLowerCase().trim() === emailInput);
+        
+        // Procura limpando espaços vazios das células da planilha
+        const found = rows.find((r) => {
+          const rowEmail = String(r.get('email') || "").toLowerCase().trim();
+          return rowEmail === emailInput;
+        });
 
-        if (!found || String(found.get('password') || "").trim() !== passwordInput) {
+        if (!found) {
+          console.log(`❌ E-mail não localizado na planilha: ${emailInput}`);
           throw new TRPCError({
             code: 'UNAUTHORIZED',
             message: "Usuário ou senha incorretos.",
           });
         }
 
-        console.log(`✅ Login efetuado com sucesso para: ${found.get('name')}`);
+        // Limpa espaços invisíveis que possam estar salvos dentro da célula da planilha
+        const dbPassword = String(found.get('password') || "").trim();
+
+        if (dbPassword !== passwordInput) {
+          console.log(`❌ Senha incorreta para o e-mail: ${emailInput}`);
+          throw new TRPCError({
+            code: 'UNAUTHORIZED',
+            message: "Usuário ou senha incorretos.",
+          });
+        }
+
+        console.log(`✅ LOGADO COM SUCESSO: ${found.get('name')}`);
 
         return {
           id: found.rowNumber,
@@ -94,7 +106,6 @@ const appRouter = t.router({
 
       } catch (error: any) {
         console.error("🚨 ERRO DETALHADO NO BACKEND:", error.message || error);
-        
         if (error instanceof TRPCError) throw error;
         throw new TRPCError({
           code: 'UNAUTHORIZED',
@@ -117,9 +128,9 @@ app.get("*", (req, res) => {
   res.sendFile(path.join(publicPath, "index.html"));
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor tRPC rodando na porta ${PORT}`);
 });
 
-// Forçando deploy v2 - Decodificador de chave ativo
+// Forçando deploy v3 - Verificação ultra-tolerante de strings
