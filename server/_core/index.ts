@@ -1,10 +1,20 @@
 import express from "express";
+import path from "path"; 
+import { fileURLToPath } from "url"; 
 import { GoogleSpreadsheet } from 'google-spreadsheet';
 import { JWT } from 'google-auth-library';
-import { ENV } from './env';
+import { ENV } from './env.js';
 
 const app = express();
 app.use(express.json());
+
+// --- CONFIGURAÇÃO PARA SERVIR O FRONTEND (Resolve o erro 404) ---
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Aponta para a pasta dist/public onde o Vite joga o HTML, CSS e JS
+const publicPath = path.join(__dirname, "../../dist/public");
+app.use(express.static(publicPath));
 
 // ==========================================
 // CONEXÃO COM O GOOGLE SHEETS
@@ -90,14 +100,12 @@ app.post("/api/login", async (req, res) => {
       return res.status(400).json({ message: "E-mail e senha são obrigatórios." });
     }
 
-    // Busca diretamente na planilha usando a função acima
     const user = await getUserByEmail(email);
 
     if (!user || user.password !== password) {
       return res.status(401).json({ message: "E-mail ou senha incorretos." });
     }
 
-    // Login com sucesso! Retorna os dados do usuário para o Frontend
     return res.json({
       id: user.id,
       name: user.name,
@@ -110,8 +118,7 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-// Rota opcional para criar novos usuários via API se precisar
-// COMO DEVE FICAR (Código Corrigido):
+// Rota para criar novos usuários via API
 app.post("/api/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -122,9 +129,14 @@ app.post("/api/register", async (req, res) => {
   }
 });
 
-// ... Você pode manter ou colar aqui abaixo as outras funções de abastecimentos (createRefueling, etc.) se o seu arquivo original tinha elas.
+// ... Se você tiver as outras rotas/funções de abastecimentos (createRefueling, etc.), mantenha-as coladas aqui ...
 
-// Inicialização do servidor
+// --- ROTA CURINGA PARA O FRONTEND (Sempre antes do listen) ---
+app.get("*", (req, res) => {
+  res.sendFile(path.join(publicPath, "index.html"));
+});
+
+// --- INICIALIZAÇÃO DO SERVIDOR ---
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando de forma independente na porta ${PORT}`);
