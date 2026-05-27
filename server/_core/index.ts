@@ -12,8 +12,17 @@ app.use(express.json());
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Aponta para a pasta dist/public onde o Vite joga o HTML, CSS e JS
-const publicPath = path.join(__dirname, "../../dist/public");
+// Busca o caminho correto de forma dinâmica independente de estar no Render ou Localmente
+let publicPath = path.join(__dirname, "../../dist/public");
+
+// Se não achar a pasta voltando dois níveis (comportamento do Render), tenta olhar no nível local do build
+if (!path.join(__dirname, "public")) {
+  publicPath = path.join(__dirname, "public");
+} else {
+  // Verificação alternativa absoluta baseada na raiz do projeto compilado
+  publicPath = path.resolve(process.cwd(), "dist/public");
+}
+
 app.use(express.static(publicPath));
 
 // ==========================================
