@@ -4,8 +4,6 @@ import axios, { type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
 import { SignJWT, jwtVerify } from "jose";
-import type { User } from "../../drizzle/schema";
-import * as db from "../db";
 import { ENV } from "./env";
 import type {
   ExchangeTokenRequest,
@@ -14,6 +12,13 @@ import type {
   GetUserInfoWithJwtRequest,
   GetUserInfoWithJwtResponse,
 } from "./types/manusTypes";
+
+// ---------------------------------------------------------------------------
+// NOTE: Database dependency removed.
+// Users are kept in a simple in-memory Map for the lifetime of the process.
+// Replace / augment this with Google Sheets persistence as needed.
+// ---------------------------------------------------------------------------
+
 // Utility function
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
@@ -23,6 +28,69 @@ export type SessionPayload = {
   appId: string;
   name: string;
 };
+
+// Minimal User shape — mirrors what the old DB schema exposed
+export type User = {
+  id: number;
+  openId: string;
+  name: string | null;
+  email: string | null;
+  loginMethod: string | null;
+  role: string;
+  createdAt: Date;
+  updatedAt: Date;
+  lastSignedIn: Date | null;
+};
+
+// ── In-memory user store ────────────────────────────────────────────────────
+let _nextId = 1;
+const _users = new Map<string, User>(); // keyed by openId
+
+function getUserByOpenId(openId: string): User | undefined {
+  return _users.get(openId);
+}
+
+function upsertUser(data: {
+  openId: string;
+  name?: string | null;
+  email?: string | null;
+  loginMethod?: string | null;
+  lastSignedIn?: Date;
+}): User {
+  const existing = _users.get(data.openId);
+  const now = new Date();
+
+  if (existing) {
+    const updated: User = {
+      ...existing,
+      name: data.name !== undefined ? data.name ?? null : existing.name,
+      email: data.email !== undefined ? data.email ?? null : existing.email,
+      loginMethod:
+        data.loginMethod !== undefined
+          ? data.loginMethod ?? null
+          : existing.loginMethod,
+      lastSignedIn: data.lastSignedIn ?? existing.lastSignedIn,
+      updatedAt: now,
+    };
+    _users.set(data.openId, updated);
+    return updated;
+  }
+
+  const created: User = {
+    id: _nextId++,
+    openId: data.openId,
+    name: data.name ?? null,
+    email: data.email ?? null,
+    loginMethod: data.loginMethod ?? null,
+    role: "user",
+    createdAt: now,
+    updatedAt: now,
+    lastSignedIn: data.lastSignedIn ?? now,
+  };
+  _users.set(data.openId, created);
+  return created;
+}
+// ── End in-memory store ─────────────────────────────────────────────────────
 
 const EXCHANGE_TOKEN_PATH = `/webdev.v1.WebDevAuthPublicService/ExchangeToken`;
 const GET_USER_INFO_PATH = `/webdev.v1.WebDevAuthPublicService/GetUserInfo`;
@@ -39,8 +107,7 @@ class OAuthService {
   }
 
   private decodeState(state: string): string {
-    const redirectUri = atob(state);
-    return redirectUri;
+    return atob(state);
   }
 
   async getTokenByCode(
@@ -67,9 +134,7 @@ class OAuthService {
   ): Promise<GetUserInfoResponse> {
     const { data } = await this.client.post<GetUserInfoResponse>(
       GET_USER_INFO_PATH,
-      {
-        accessToken: token.accessToken,
-      }
+      { accessToken: token.accessToken }
     );
 
     return data;
@@ -113,11 +178,6 @@ class SDKServer {
     return first ? first.toLowerCase() : null;
   }
 
-  /**
-   * Exchange OAuth authorization code for access token
-   * @example
-   * const tokenResponse = await sdk.exchangeCodeForToken(code, state);
-   */
   async exchangeCodeForToken(
     code: string,
     state: string
@@ -125,11 +185,6 @@ class SDKServer {
     return this.oauthService.getTokenByCode(code, state);
   }
 
-  /**
-   * Get user information using access token
-   * @example
-   * const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
-   */
   async getUserInfo(accessToken: string): Promise<GetUserInfoResponse> {
     const data = await this.oauthService.getUserInfoByToken({
       accessToken,
@@ -146,34 +201,21 @@ class SDKServer {
   }
 
   private parseCookies(cookieHeader: string | undefined) {
-    if (!cookieHeader) {
-      return new Map<string, string>();
-    }
-
+    if (!cookieHeader) return new Map<string, string>();
     const parsed = parseCookieHeader(cookieHeader);
     return new Map(Object.entries(parsed));
   }
 
   private getSessionSecret() {
-    const secret = ENV.cookieSecret;
-    return new TextEncoder().encode(secret);
+    return new TextEncoder().encode(ENV.cookieSecret);
   }
 
-  /**
-   * Create a session token for a Manus user openId
-   * @example
-   * const sessionToken = await sdk.createSessionToken(userInfo.openId);
-   */
   async createSessionToken(
     openId: string,
     options: { expiresInMs?: number; name?: string } = {}
   ): Promise<string> {
     return this.signSession(
-      {
-        openId,
-        appId: ENV.appId,
-        name: options.name || "",
-      },
+      { openId, appId: ENV.appId, name: options.name || "" },
       options
     );
   }
@@ -221,11 +263,7 @@ class SDKServer {
         return null;
       }
 
-      return {
-        openId,
-        appId,
-        name,
-      };
+      return { openId, appId, name };
     } catch (error) {
       console.warn("[Auth] Session verification failed", String(error));
       return null;
@@ -257,7 +295,6 @@ class SDKServer {
   }
 
   async authenticateRequest(req: Request): Promise<AuthenticatedUser> {
-    // Regular authentication flow
     const cookies = this.parseCookies(req.headers.cookie);
     const sessionCookie = cookies.get(COOKIE_NAME);
     const session = await this.verifySession(sessionCookie);
@@ -266,6 +303,7 @@ class SDKServer {
       throw ForbiddenError("Invalid session cookie");
     }
 
+    // ── Cron / scheduled-task path ──────────────────────────────────────────
     if (session.openId.startsWith(CRON_OPEN_ID_PREFIX)) {
       const userInfo = await this.getUserInfoWithJwt(sessionCookie ?? "");
       const taskUid = userInfo.taskUid ?? null;
@@ -275,22 +313,22 @@ class SDKServer {
       return buildCronUser(userInfo);
     }
 
-    const sessionUserId = session.openId;
+    // ── Regular user path ───────────────────────────────────────────────────
     const signedInAt = new Date();
-    let user = await db.getUserByOpenId(sessionUserId);
+    let user = getUserByOpenId(session.openId);
 
-    // If user not in DB, sync from OAuth server automatically
+    // First visit: sync from OAuth server and cache in memory
     if (!user) {
       try {
         const userInfo = await this.getUserInfoWithJwt(sessionCookie ?? "");
-        await db.upsertUser({
+        upsertUser({
           openId: userInfo.openId,
           name: userInfo.name || null,
           email: userInfo.email ?? null,
           loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
           lastSignedIn: signedInAt,
         });
-        user = await db.getUserByOpenId(userInfo.openId);
+        user = getUserByOpenId(userInfo.openId);
       } catch (error) {
         console.error("[Auth] Failed to sync user from OAuth:", error);
         throw ForbiddenError("Failed to sync user info");
@@ -301,12 +339,10 @@ class SDKServer {
       throw ForbiddenError("User not found");
     }
 
-    await db.upsertUser({
-      openId: user.openId,
-      lastSignedIn: signedInAt,
-    });
+    // Update last-seen timestamp
+    upsertUser({ openId: user.openId, lastSignedIn: signedInAt });
 
-    return user;
+    return user as AuthenticatedUser;
   }
 }
 
