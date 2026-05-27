@@ -101,24 +101,48 @@ export async function registerUser(name: string, email: string, passwordPlain: s
 // ==========================================
 
 // ==========================================
+//// ==========================================
 // ROTAS DE AUTENTICAÇÃO (ADAPTADAS PARA TRPC)
 // ==========================================
 
-// Esta rota intercepta o clique do botão "Entrar" vindo do frontend tRPC
 app.post("/api/trpc/auth.login", async (req, res) => {
   try {
-    // O tRPC geralmente envia os dados dentro de um objeto chamado 'json' ou direto no body
-    // Vamos capturar das duas formas para garantir
-    const input = req.body.json || req.body;
-    const { email, password } = input;
+    console.log("Dados recebidos no body:", JSON.stringify(req.body));
+
+    // O tRPC pode enviar os dados de várias formas estruturadas.
+    // Vamos tentar capturar de todas as combinações possíveis:
+    let email = "";
+    let password = "";
+
+    if (req.body) {
+      // 1. Tenta buscar de req.body.json (Formato tRPC padrão v11)
+      if (req.body.json) {
+        email = req.body.json.email;
+        password = req.body.json.password;
+      } 
+      // 2. Tenta buscar da primeira chave de uma lista (Formato batching do tRPC v10: { "0": { "email": ... } })
+      else if (req.body["0"]) {
+        email = req.body["0"].email;
+        password = req.body["0"].password;
+      }
+      // 3. Tenta buscar direto no body raiz
+      else {
+        email = req.body.email;
+        password = req.body.password;
+      }
+    }
+
+    // Remove qualquer espaço em branco que tenha ido sem querer
+    email = email ? email.trim() : "";
+    password = password ? password.trim() : "";
 
     if (!email || !password) {
       return res.status(400).json({
-        error: { message: "E-mail e senha são obrigatórios." }
+        error: { message: "E-mail e senha são obrigatórios no formato de input do tRPC." }
       });
     }
 
-    // Busca o usuário na Planilha do Google
+    // Executa a busca na planilha utilizando o e-mail extraído
     const user = await getUserByEmail(email);
 
     if (!user || user.password !== password) {
@@ -127,7 +151,8 @@ app.post("/api/trpc/auth.login", async (req, res) => {
       });
     }
 
-    // Retorna a resposta no formato exato que o tRPC do Frontend espera receber
+    // Devolve no formato exato que o interceptor do tRPC precisa para dar "Success"
+    // Mantemos tanto o formato v10 quanto o v11 envolvidos em 'result'
     return res.json({
       result: {
         data: {
@@ -138,25 +163,12 @@ app.post("/api/trpc/auth.login", async (req, res) => {
         }
       }
     });
-  } catch (error) {
-    console.error("Erro na rota de login tRPC:", error);
-    return res.status(500).json({
-      error: { message: "Erro interno no servidor." }
-    });
-  }
-});
 
-// Mantendo a rota tradicional caso alguma outra parte do código chame
-app.post("/api/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const user = await getUserByEmail(email);
-    if (!user || user.password !== password) {
-      return res.status(401).json({ message: "E-mail ou senha incorretos." });
-    }
-    return res.json({ id: user.id, name: user.name, email: user.email });
-  } catch (error) {
-    return res.status(500).json({ message: "Erro interno." });
+  } catch (error: any) {
+    console.error("Erro interno na rota de login tRPC:", error);
+    return res.status(500).json({
+      error: { message: error.message || "Erro interno no servidor." }
+    });
   }
 });
 // ... Se você tiver as outras rotas/funções de abastecimentos (createRefueling, etc.), mantenha-as coladas aqui ...
