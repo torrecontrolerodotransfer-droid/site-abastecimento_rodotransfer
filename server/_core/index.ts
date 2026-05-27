@@ -5,6 +5,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import * as trpcExpress from "@trpc/server/adapters/express";
 import { z } from "zod";
 import { google } from "googleapis";
+import superjson from "superjson"; // Importação do transformador padrão do tRPC v10+
 
 const app = express();
 
@@ -16,7 +17,6 @@ const __dirname = path.dirname(__filename);
 const publicPath = path.resolve(process.cwd(), "dist/public");
 app.use(express.static(publicPath));
 
-// --- FUNÇÃO CENTRAL DE CONEXÃO COM O GOOGLE SHEETS ---
 async function verificarUsuarioNaPlanilha(emailInput: string, passwordInput: string) {
   const emailService = (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "").trim();
   const sheetId = (process.env.GOOGLE_SHEET_ID || "").trim();
@@ -38,7 +38,6 @@ async function verificarUsuarioNaPlanilha(emailInput: string, passwordInput: str
 
   const sheets = google.sheets({ version: 'v4', auth });
   
-  // Força o cache zero usando um timestamp no parâmetro interno se necessário
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
     range: 'usuarios!A:D',
@@ -46,7 +45,7 @@ async function verificarUsuarioNaPlanilha(emailInput: string, passwordInput: str
 
   const rows = response.data.values;
   if (!rows || rows.length <= 1) {
-    throw new Error("Aba 'usuarios' vazia ou ilegível.");
+    throw new Error("Aba 'usuarios' vazia.");
   }
 
   let userFound: any = null;
@@ -74,13 +73,15 @@ async function verificarUsuarioNaPlanilha(emailInput: string, passwordInput: str
   return { name: dbName, email: emailInput };
 }
 
-// --- ROTEADOR TRPC AJUSTADO ---
-const t = initTRPC.create();
+// --- CONFIGURAÇÃO DO TRPC COM SUPERJSON ---
+const t = initTRPC.create({
+  transformer: superjson, // Garante que as respostas sejam transformadas corretamente para o frontend
+});
+
 const appRouter = t.router({
   'auth.login': t.procedure
     .input(z.any())
     .mutation(async ({ input }) => {
-      // Mapeia username e email para capturar de qualquer formato
       const email = (
         input?.username || 
         input?.json?.username || 
@@ -95,10 +96,8 @@ const appRouter = t.router({
         ""
       ).trim();
 
-      console.log(`[tRPC] Buscando no Google Sheets: Email/Username: "${email}"`);
-      
+      console.log(`[tRPC] Processando login para: "${email}"`);
       const user = await verificarUsuarioNaPlanilha(email, password);
-      console.log(`[tRPC] ✅ Login aceito para: ${user.name}`);
       
       return { 
         id: 1, 
@@ -113,7 +112,6 @@ export type AppRouter = typeof appRouter;
 
 app.use("/api/trpc", trpcExpress.createExpressMiddleware({ router: appRouter }));
 
-// Resposta de compatibilidade para o tRPC do front
 app.get("/api/trpc/auth.me", (req, res) => {
   res.status(200).json({ result: { data: null } });
 });
@@ -124,5 +122,5 @@ app.get("*", (req, res) => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor corrigido rodando na porta ${PORT}`);
+  console.log(`🚀 Servidor com SuperJSON rodando na porta ${PORT}`);
 });
