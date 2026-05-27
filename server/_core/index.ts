@@ -111,15 +111,16 @@ app.post("/api/login", async (req, res) => {
 });
 
 // Rota opcional para criar novos usuários via API se precisar
+// COMO DEVE FICAR (Código Corrigido):
 app.post("/api/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
     await registerUser(name, email, password);
-    return res.json({ message: "Usuário registrado com sucesso!" });
+    res.json({ message: "Usuário registrado com sucesso!" });
   } catch (error: any) {
-    return res.status(400).json({ message: error.message || "Erro ao registrar." });
+    res.status(400).json({ message: error.message || "Erro ao registrar." });
   }
-} as express.RequestHandler);
+});
 
 // ... Você pode manter ou colar aqui abaixo as outras funções de abastecimentos (createRefueling, etc.) se o seu arquivo original tinha elas.
 
