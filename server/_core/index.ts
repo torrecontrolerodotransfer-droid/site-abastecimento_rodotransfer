@@ -18,16 +18,22 @@ const __dirname = path.dirname(__filename);
 const publicPath = path.resolve(process.cwd(), "dist/public");
 app.use(express.static(publicPath));
 
-// --- CONEXÃO DIRETA COM AS VARIÁVEIS DO RENDER ---
+// --- CONEXÃO COM TRATAMENTO DE CHAVE ---
 async function getSheetDoc() {
-  // Puxa direto do process.env do Render para evitar erros de importação do env.js
-  const rawKey = process.env.GOOGLE_PRIVATE_KEY || "";
-  const privateKey = rawKey.replace(/\\n/g, '\n');
-  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "";
-  const sheetId = process.env.GOOGLE_SHEET_ID || "";
+  const email = (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "").trim();
+  const sheetId = (process.env.GOOGLE_SHEET_ID || "").trim();
+  let rawKey = process.env.GOOGLE_PRIVATE_KEY || "";
+
+  // Remove aspas extras que o Render às vezes adiciona nas pontas da variável
+  if (rawKey.startsWith('"') && rawKey.endsWith('"')) {
+    rawKey = rawKey.slice(1, -1);
+  }
+
+  // Substitui as quebras de linha literais por quebras reais do sistema
+  const privateKey = rawKey.replace(/\\n/g, '\n').trim();
 
   if (!privateKey || !email || !sheetId) {
-    console.error("❌ ERRO CRÍTICO: Variáveis do Google não foram encontradas no process.env!");
+    console.error("❌ ERRO: Faltando variáveis de ambiente essenciais do Google.");
   }
 
   const serviceAccountAuth = new JWT({
@@ -49,54 +55,35 @@ const appRouter = t.router({
     .input(z.any())
     .mutation(async ({ input }) => {
       try {
-        // Aceita as variações de envio do tRPC do frontend
         const emailInput = (input?.email || input?.json?.email || "").toLowerCase().trim();
         const passwordInput = (input?.password || input?.json?.password || "").trim();
 
-        console.log(`Tentativa de login recebida para: ${emailInput}`);
+        console.log(` Tentativa de login para: ${emailInput}`);
 
-        // 1. CONEXÃO COM A PLANILHA
+        // Tentativa de conexão
         const doc = await getSheetDoc();
-        const sheet = doc.sheetsByTitle['usuarios']; // Nome idêntico ao da sua aba
+        const sheet = doc.sheetsByTitle['usuarios'];
         
         if (!sheet) {
+          console.error("❌ Aba 'usuarios' não foi encontrada na planilha.");
           throw new TRPCError({
             code: 'NOT_FOUND',
-            message: "Aba 'usuarios' não encontrada na planilha.",
+            message: "Aba de usuários não encontrada.",
           });
         }
 
-        // 2. LEITURA DAS LINHAS
         const rows = await sheet.getRows();
-        
-        // Busca o usuário comparando o e-mail da coluna
-        const found = rows.find((r) => {
-          const rowEmail = String(r.get('email') || "").toLowerCase().trim();
-          return rowEmail === emailInput;
-        });
+        const found = rows.find((r) => String(r.get('email') || "").toLowerCase().trim() === emailInput);
 
-        if (!found) {
-          console.log(`❌ Usuário não encontrado na planilha: ${emailInput}`);
+        if (!found || String(found.get('password') || "").trim() !== passwordInput) {
           throw new TRPCError({
             code: 'UNAUTHORIZED',
             message: "Usuário ou senha incorretos.",
           });
         }
 
-        // 3. VALIDAÇÃO DA SENHA
-        const dbPassword = String(found.get('password') || "").trim();
+        console.log(`✅ Login efetuado: ${found.get('name')}`);
 
-        if (dbPassword !== passwordInput) {
-          console.log(`❌ Senha incorreta para o usuário: ${emailInput}`);
-          throw new TRPCError({
-            code: 'UNAUTHORIZED',
-            message: "Usuário ou senha incorretos.",
-          });
-        }
-
-        console.log(`✅ Login efetuado com sucesso para: ${found.get('name')}`);
-
-        // Retorna o objeto exato que o frontend precisa para montar a sessão logada
         return {
           id: found.rowNumber,
           name: found.get('name') || "Usuário",
@@ -105,11 +92,13 @@ const appRouter = t.router({
         };
 
       } catch (error: any) {
+        // Exibe no log do Render o motivo exato da rejeição do Google
+        console.error("🚨 DETALHE DO ERRO NO LOGIN:", error.message || error);
+        
         if (error instanceof TRPCError) throw error;
-        console.error("Erro interno no processo de login:", error);
         throw new TRPCError({
-          code: 'INTERNAL_SERVER_ERROR',
-          message: "Erro interno no servidor ao validar dados.",
+          code: 'UNAUTHORIZED',
+          message: "Usuário ou senha incorretos.",
         });
       }
     }),
@@ -130,7 +119,7 @@ app.get("*", (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor tRPC blindado rodando na porta ${PORT}`);
+  console.log(`🚀 Servidor rodando na porta ${PORT}`);
 });
 
-// Forçando deploy da nova versão: 2026
+// Forçando deploy para limpeza de chaves v1
