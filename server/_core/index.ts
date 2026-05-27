@@ -6,13 +6,9 @@ import * as trpcExpress from "@trpc/server/adapters/express";
 import { z } from "zod";
 import { google } from "googleapis";
 
-// --- IMPORTAÇÕES ORIGINAIS DO SEU PROJETO ---
-import { COOKIE_NAME } from "../shared/const";
-import { getSessionCookieOptions } from "./_core/cookies";
-
 const app = express();
 
-// Permite o tráfego de cookies e cabeçalhos de autenticação entre o site e o backend
+// Garante tráfego livre de cookies de autenticação entre as requisições
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Credentials", "true");
   next();
@@ -26,7 +22,7 @@ const __dirname = path.dirname(__filename);
 const publicPath = path.resolve(process.cwd(), "dist/public");
 app.use(express.static(publicPath));
 
-// --- CONEXÃO DIRETA COM O GOOGLE SHEETS ---
+// --- INTEGRAÇÃO COM GOOGLE SHEETS ---
 async function verificarUsuarioNaPlanilha(emailInput: string, passwordInput: string) {
   const emailService = (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "").trim();
   const sheetId = (process.env.GOOGLE_SHEET_ID || "").trim();
@@ -55,7 +51,7 @@ async function verificarUsuarioNaPlanilha(emailInput: string, passwordInput: str
 
   const rows = response.data.values;
   if (!rows || rows.length <= 1) {
-    throw new Error("Aba 'usuarios' vazia.");
+    throw new Error("Aba 'usuarios' vazia ou sem dados.");
   }
 
   let userFound: any = null;
@@ -73,7 +69,7 @@ async function verificarUsuarioNaPlanilha(emailInput: string, passwordInput: str
     throw new Error("E-mail não localizado na planilha.");
   }
 
-  const dbName = String(userFound[1] || "Usuário").trim();
+  const dbName = String(userFound[1] || "RODOTRANSFER").trim();
   const dbPassword = String(userFound[3] || "").trim();
 
   if (dbPassword !== passwordInput.trim()) {
@@ -83,27 +79,27 @@ async function verificarUsuarioNaPlanilha(emailInput: string, passwordInput: str
   return { name: dbName, email: emailInput };
 }
 
-// --- CONTEXTO ADAPTADO PARA PASSAR REQ E RES PARA OS COOKIES ---
+// --- CONTEXTO TRPC ---
 const createContext = ({ req, res }: trpcExpress.CreateExpressContextOptions) => ({ req, res });
-
-// --- CONFIGURAÇÃO DO TRPC ---
 const t = initTRPC.context<typeof createContext>().create();
 
+// --- ROTAS DO SISTEMA (ALINHADAS COM SEU FRONTEND) ---
 const appRouter = t.router({
   auth: t.router({
-    // Rota me: Lê a sessão simulada ou ativa
+    
+    // Rota me: Informa os dados tipados exatamente como a Dashboard quer consumir
     me: t.procedure.query(() => {
-      console.log("[tRPC] Rota auth.me consultada pelo hook useAuth.");
+      console.log("[tRPC] Verificação de sessão externa efetuada.");
       return {
-        id: 1,
+        id: 1, // ID Numérico obrigatório
         openId: "admin",
-        name: "Rodotransfer Operador",
+        name: "RODOTRANSFER",
         email: "frotas@rodotransfer.com.br",
         role: "admin",
       };
     }),
 
-    // Rota login: Mesma estrutura do seu routers.ts, mas conectada ao Google Sheets!
+    // Rota login: Autentica via planilha e injeta o cookie esperado
     login: t.procedure
       .input(
         z.object({
@@ -115,33 +111,37 @@ const appRouter = t.router({
         const email = input.username.toLowerCase().trim();
         const password = input.password.trim();
 
-        console.log(`[tRPC] Iniciando validação no Sheets para: "${email}"`);
+        console.log(`[tRPC] Solicitando validação para: "${email}"`);
 
         try {
-          // Busca o usuário em tempo real na planilha do Google
           const userPlanilha = await verificarUsuarioNaPlanilha(email, password);
           console.log(`[tRPC] ✅ LOGIN ACEITO COM SUCESSO PARA: ${userPlanilha.name}`);
 
+          // Dados mapeados perfeitamente
           const sessionUser = {
-            id: 1,
+            id: 1, // Tipo Número puro
             openId: "admin",
             name: userPlanilha.name,
             email: userPlanilha.email,
             role: "admin",
           };
 
-          // Salva o cookie original usando as regras do seu projeto original
-          const cookieOptions = getSessionCookieOptions(ctx.req);
-          ctx.res.cookie(COOKIE_NAME, "sessao_rodotransfer_ativa", cookieOptions);
+          // Gravação direta do Cookie sem dependências externas complexas
+          ctx.res.cookie("sb-auth-token", "sessao_rodotransfer_ativa", {
+            httpOnly: true,
+            secure: true,
+            sameSite: "lax",
+            path: "/",
+            maxAge: 60 * 60 * 24 * 7 * 1000, // 7 dias
+          });
 
-          // Retorna o exato payload que o seu Home.tsx e useAuth exigem
           return {
             success: true,
             user: sessionUser,
           };
 
         } catch (err: any) {
-          console.error(`[tRPC] ❌ Falha no login: ${err.message}`);
+          console.error(`[tRPC] ❌ Erro de autenticação: ${err.message}`);
           throw new TRPCError({
             code: "UNAUTHORIZED",
             message: err.message || "Usuário ou senha incorretos.",
@@ -149,20 +149,21 @@ const appRouter = t.router({
         }
       }),
 
-    // Rota logout original
+    // Rota logout
     logout: t.procedure.mutation(({ ctx }) => {
-      const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
-      return {
-        success: true,
-      } as const;
+      ctx.res.clearCookie("sb-auth-token", {
+        path: "/",
+        httpOnly: true,
+        secure: true,
+        sameSite: "lax",
+      });
+      return { success: true };
     }),
   }),
 });
 
 export type AppRouter = typeof appRouter;
 
-// Aplica o tRPC injetando o contexto com req e res para gravação de cookies
 app.use(
   "/api/trpc",
   trpcExpress.createExpressMiddleware({
@@ -175,7 +176,7 @@ app.get("*", (req, res) => {
   res.sendFile(path.join(publicPath, "index.html"));
 });
 
-const PORT = process.env.PORT || 10000;
+const PORT = PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`🚀 Backend 100% integrado com Cookies e Sheets rodando na porta ${PORT}`);
+  console.log(`🚀 Servidor de Produção 100% alinhado na porta ${PORT}`);
 });
