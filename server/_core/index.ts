@@ -5,7 +5,6 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import * as trpcExpress from "@trpc/server/adapters/express";
 import { z } from "zod";
 import { google } from "googleapis";
-import superjson from "superjson"; // Importação do transformador padrão do tRPC v10+
 
 const app = express();
 
@@ -17,6 +16,7 @@ const __dirname = path.dirname(__filename);
 const publicPath = path.resolve(process.cwd(), "dist/public");
 app.use(express.static(publicPath));
 
+// --- CONEXÃO DIRETA COM O GOOGLE SHEETS ---
 async function verificarUsuarioNaPlanilha(emailInput: string, passwordInput: string) {
   const emailService = (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "").trim();
   const sheetId = (process.env.GOOGLE_SHEET_ID || "").trim();
@@ -73,12 +73,11 @@ async function verificarUsuarioNaPlanilha(emailInput: string, passwordInput: str
   return { name: dbName, email: emailInput };
 }
 
-// --- CONFIGURAÇÃO DO TRPC COM SUPERJSON ---
-const t = initTRPC.create({
-  transformer: superjson, // Garante que as respostas sejam transformadas corretamente para o frontend
-});
+// --- CONFIGURAÇÃO DO TRPC EM JSON PURO ---
+const t = initTRPC.create(); // Sem transformadores para alinhar com o formato padrão do seu front
 
 const appRouter = t.router({
+  // Rota 1: Autenticação do Login
   'auth.login': t.procedure
     .input(z.any())
     .mutation(async ({ input }) => {
@@ -96,25 +95,42 @@ const appRouter = t.router({
         ""
       ).trim();
 
-      console.log(`[tRPC] Processando login para: "${email}"`);
-      const user = await verificarUsuarioNaPlanilha(email, password);
+      console.log(`[tRPC] Solicitando validação para: "${email}"`);
       
-      return { 
-        id: 1, 
-        name: user.name, 
-        email: user.email, 
-        message: "Sucesso" 
-      };
+      try {
+        const user = await verificarUsuarioNaPlanilha(email, password);
+        console.log(`[tRPC] ✅ LOGIN ACEITO COM SUCESSO PARA: ${user.name}`);
+        
+        // Retorna a estrutura exata que o frontend espera salvar na sessão
+        return { 
+          id: 1, 
+          name: user.name, 
+          email: user.email, 
+          role: "admin"
+        };
+      } catch (err: any) {
+        console.error(`[tRPC] ❌ Erro na validação: ${err.message}`);
+        throw new TRPCError({ 
+          code: 'UNAUTHORIZED', 
+          message: err.message || "Usuário ou senha incorretos." 
+        });
+      }
     }),
+
+  // Rota 2: Verificação de Sessão Ativa (Evita o erro "No procedure found on path auth.me")
+  'auth.me': t.procedure
+    .input(z.any().optional())
+    .query(() => {
+      console.log("[tRPC] Verificação de sessão externa efetuada.");
+      // Retorna null temporariamente para sinalizar que não há sessão antiga travada
+      return null;
+    })
 });
 
 export type AppRouter = typeof appRouter;
 
+// Aplica as rotas estruturadas no barramento do Express
 app.use("/api/trpc", trpcExpress.createExpressMiddleware({ router: appRouter }));
-
-app.get("/api/trpc/auth.me", (req, res) => {
-  res.status(200).json({ result: { data: null } });
-});
 
 app.get("*", (req, res) => {
   res.sendFile(path.join(publicPath, "index.html"));
@@ -122,5 +138,5 @@ app.get("*", (req, res) => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor com SuperJSON rodando na porta ${PORT}`);
+  console.log(`🚀 Servidor de Produção 100% alinhado na porta ${PORT}`);
 });
