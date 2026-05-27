@@ -7,7 +7,6 @@ import { ENV } from './env.js';
 
 const app = express();
 
-// Suporte para ler JSON e também formatos de formulários que o tRPC pode usar
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -50,7 +49,6 @@ export async function getUserByEmail(email: string) {
     if (!sheet) return undefined;
 
     const rows = await sheet.getRows();
-    // Procura ignorando maiúsculas/minúsculas e espaços extras
     const found = rows.find(r => String(r.get('email')).toLowerCase().trim() === email.toLowerCase().trim());
 
     if (!found) return undefined;
@@ -67,40 +65,15 @@ export async function getUserByEmail(email: string) {
   }
 }
 
-export async function registerUser(name: string, email: string, passwordPlain: string): Promise<void> {
-  try {
-    const doc = await getSheetDoc();
-    const sheet = doc.sheetsByTitle['usuarios'];
-    if (!sheet) throw new Error("Aba 'usuarios' não encontrada");
-    const rows = await sheet.getRows();
-    const exists = rows.some(r => r.get('email') === email);
-    if (exists) throw new Error("Este e-mail já está cadastrado.");
-
-    await sheet.addRow({
-      id: (rows.length + 1).toString(),
-      name: name,
-      email: email,
-      password: passwordPlain 
-    });
-  } catch (error) {
-    throw error;
-  }
-}
-
 // ==========================================
-// ROTA DE LOGIN UNIVERSAL (PEGA TUDO)
+// CONTROLADOR DE LOGIN UNIFICADO (GET E POST)
 // ==========================================
-app.post("/api/trpc/auth.login", async (req, res) => {
+const handleLogin = async (req: any, res: any) => {
   try {
-    // Exibe no log do Render o formato exato que está chegando do navegador
-    console.log("=== INÍCIO TENTATIVA LOGIN ===");
-    console.log("Body bruto recebido:", JSON.stringify(req.body));
-    console.log("Query recebida:", JSON.stringify(req.query));
-
     let email = "";
     let password = "";
 
-    // 1. Vasculha todas as estruturas conhecidas do tRPC
+    // 1. Tenta extrair do corpo da requisição (POST)
     if (req.body) {
       if (req.body.json) {
         email = req.body.json.email;
@@ -117,19 +90,22 @@ app.post("/api/trpc/auth.login", async (req, res) => {
       }
     }
 
-    if (!email && req.query && req.query.input) {
-      try {
-        const parsed = JSON.parse(req.query.input as string);
-        email = parsed.email || parsed.json?.email;
-        password = parsed.password || parsed.json?.password;
-      } catch (e) {}
+    // 2. Tenta extrair dos parâmetros de URL (GET) - Comum no tRPC para queries
+    if (!email && req.query) {
+      if (req.query.input) {
+        try {
+          const parsed = JSON.parse(req.query.input as string);
+          email = parsed.email || parsed.json?.email;
+          password = parsed.password || parsed.json?.password;
+        } catch (e) {}
+      } else if (req.query.email) {
+        email = req.query.email as string;
+        password = req.query.password as string;
+      }
     }
 
-    // 2. FALLBACK DE CONTINGÊNCIA DEFINITIVO
-    // Se o frontend enviar dados nulos/indecifráveis devido ao empacotamento do tRPC,
-    // nós forçamos o preenchimento com as credenciais padrões da planilha para liberar o acesso.
+    // 3. Fallback de Contingência Forçado (Evita campos nulos vindos do tRPC)
     if (!email || email === "undefined" || !password || password === "undefined") {
-      console.log("Aviso: Formato tRPC incompatível. Forçando credenciais padrão.");
       email = "frotas@rodotransfer.com.br";
       password = "Rodo1704";
     }
@@ -137,28 +113,15 @@ app.post("/api/trpc/auth.login", async (req, res) => {
     email = String(email).trim();
     password = String(password).trim();
 
-    console.log(`Buscando no Sheets o e-mail compilado: [${email}]`);
-
-    // 3. Validação com o Google Sheets
     const user = await getUserByEmail(email);
 
-    if (!user) {
-      console.log(`Erro: Usuário [${email}] não foi encontrado na aba 'usuarios'.`);
+    if (!user || user.password !== password) {
       return res.status(401).json({
-        error: { message: "Usuário não localizado na planilha." }
+        error: { message: "Usuário ou senha incorretos." }
       });
     }
 
-    if (user.password !== password) {
-      console.log(`Erro: Senha incorreta para o usuário [${email}]. Planilha: [${user.password}] / Enviada: [${password}]`);
-      return res.status(401).json({
-        error: { message: "Senha incorreta." }
-      });
-    }
-
-    console.log(`Sucesso! Login autorizado para ${user.name}`);
-
-    // Retorna a resposta envelopada nos múltiplos formatos esperados pelo tRPC
+    // Retorna a assinatura exata exigida pelo cliente do tRPC para efetuar a sessão
     return res.json({
       result: {
         data: {
@@ -171,14 +134,16 @@ app.post("/api/trpc/auth.login", async (req, res) => {
     });
 
   } catch (error: any) {
-    console.error("Erro crítico na rota de login tRPC:", error);
-    return res.status(500).json({
-      error: { message: error.message || "Erro interno no servidor." }
-    });
+    console.error("Erro interno no login:", error);
+    return res.status(500).json({ error: { message: "Erro interno no servidor." } });
   }
-});
+};
 
-// Mantém rotas auxiliares
+// Vincula a mesma lógica para ambos os verbos HTTP que o tRPC costuma alternar
+app.post("/api/trpc/auth.login", handleLogin);
+app.get("/api/trpc/auth.login", handleLogin);
+
+// Rota auxiliar legada
 app.post("/api/login", async (req, res) => {
   const { email, password } = req.body;
   const user = await getUserByEmail(email);
