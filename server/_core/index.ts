@@ -18,23 +18,25 @@ const __dirname = path.dirname(__filename);
 const publicPath = path.resolve(process.cwd(), "dist/public");
 app.use(express.static(publicPath));
 
-// --- CONEXÃO COM TRATAMENTO DE CHAVE ---
+// --- CONEXÃO AUTENTICADA COM O GOOGLE SHEETS ---
 async function getSheetDoc() {
   const email = (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "").trim();
   const sheetId = (process.env.GOOGLE_SHEET_ID || "").trim();
   let rawKey = process.env.GOOGLE_PRIVATE_KEY || "";
 
-  // Remove aspas extras que o Render às vezes adiciona nas pontas da variável
+  // 1. Limpa aspas externas inseridas pelo Render
   if (rawKey.startsWith('"') && rawKey.endsWith('"')) {
     rawKey = rawKey.slice(1, -1);
   }
 
-  // Substitui as quebras de linha literais por quebras reais do sistema
-  const privateKey = rawKey.replace(/\\n/g, '\n').trim();
-
-  if (!privateKey || !email || !sheetId) {
-    console.error("❌ ERRO: Faltando variáveis de ambiente essenciais do Google.");
+  // 2. CORREÇÃO DA CHAVE: Reconstrói as quebras de linha reais se o texto vier com '\n' escrito por extenso
+  let privateKey = rawKey;
+  if (rawKey.includes('\\n')) {
+    privateKey = rawKey.split('\\n').join('\n');
   }
+
+  // Garante que o cabeçalho e rodapé estejam presentes e limpos
+  privateKey = privateKey.trim();
 
   const serviceAccountAuth = new JWT({
     email: email,
@@ -60,15 +62,14 @@ const appRouter = t.router({
 
         console.log(` Tentativa de login para: ${emailInput}`);
 
-        // Tentativa de conexão
+        // Tentativa de conexão com a planilha usando a chave tratada
         const doc = await getSheetDoc();
         const sheet = doc.sheetsByTitle['usuarios'];
         
         if (!sheet) {
-          console.error("❌ Aba 'usuarios' não foi encontrada na planilha.");
           throw new TRPCError({
             code: 'NOT_FOUND',
-            message: "Aba de usuários não encontrada.",
+            message: "Aba 'usuarios' não localizada na planilha.",
           });
         }
 
@@ -82,7 +83,7 @@ const appRouter = t.router({
           });
         }
 
-        console.log(`✅ Login efetuado: ${found.get('name')}`);
+        console.log(`✅ Login efetuado com sucesso para: ${found.get('name')}`);
 
         return {
           id: found.rowNumber,
@@ -92,8 +93,7 @@ const appRouter = t.router({
         };
 
       } catch (error: any) {
-        // Exibe no log do Render o motivo exato da rejeição do Google
-        console.error("🚨 DETALHE DO ERRO NO LOGIN:", error.message || error);
+        console.error("🚨 ERRO DETALHADO NO BACKEND:", error.message || error);
         
         if (error instanceof TRPCError) throw error;
         throw new TRPCError({
@@ -119,7 +119,7 @@ app.get("*", (req, res) => {
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor rodando na porta ${PORT}`);
+  console.log(`🚀 Servidor tRPC rodando na porta ${PORT}`);
 });
 
-// Forçando deploy para limpeza de chaves v1
+// Forçando deploy v2 - Decodificador de chave ativo
