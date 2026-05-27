@@ -53,6 +53,7 @@ const trpcClient = trpc.createClient({
 });
 
 // Register service worker for PWA
+/*
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker
@@ -65,6 +66,8 @@ if ("serviceWorker" in navigator) {
       });
   });
 }
+*/
+
 
 createRoot(document.getElementById("root")!).render(
   <trpc.Provider client={trpcClient} queryClient={queryClient}>
