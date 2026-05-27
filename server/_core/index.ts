@@ -4,6 +4,7 @@ import { fileURLToPath } from "url";
 import { initTRPC, TRPCError } from "@trpc/server";
 import * as trpcExpress from "@trpc/server/adapters/express";
 import { z } from "zod";
+import { google } from "googleapis";
 
 const app = express();
 
@@ -15,71 +16,104 @@ const __dirname = path.dirname(__filename);
 const publicPath = path.resolve(process.cwd(), "dist/public");
 app.use(express.static(publicPath));
 
-// --- ROTEADOR TRPC NATIVO ---
+// --- FUNÇÃO CENTRAL DE CONEXÃO COM O GOOGLE SHEETS ---
+async function verificarUsuarioNaPlanilha(emailInput: string, passwordInput: string) {
+  const emailService = (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "").trim();
+  const sheetId = (process.env.GOOGLE_SHEET_ID || "").trim();
+  let rawKey = process.env.GOOGLE_PRIVATE_KEY || "";
+
+  if (rawKey.startsWith('"') && rawKey.endsWith('"')) rawKey = rawKey.slice(1, -1);
+  if (rawKey.startsWith("'") && rawKey.endsWith("'")) rawKey = rawKey.slice(1, -1);
+
+  let privateKey = rawKey;
+  if (rawKey.includes('\\n')) {
+    privateKey = rawKey.split('\\n').join('\n');
+  }
+
+  const auth = new google.auth.JWT({
+    email: emailService,
+    key: privateKey.trim(),
+    scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+  });
+
+  const sheets = google.sheets({ version: 'v4', auth });
+  
+  // Força o cache zero usando um timestamp no parâmetro interno se necessário
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId: sheetId,
+    range: 'usuarios!A:D',
+  });
+
+  const rows = response.data.values;
+  if (!rows || rows.length <= 1) {
+    throw new Error("Aba 'usuarios' vazia ou ilegível.");
+  }
+
+  let userFound: any = null;
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.length < 4) continue;
+    const rowEmail = String(row[2] || "").toLowerCase().trim();
+    if (rowEmail === emailInput.toLowerCase().trim()) {
+      userFound = row;
+      break;
+    }
+  }
+
+  if (!userFound) {
+    throw new Error("E-mail não localizado na planilha.");
+  }
+
+  const dbName = String(userFound[1] || "Usuário").trim();
+  const dbPassword = String(userFound[3] || "").trim();
+
+  if (dbPassword !== passwordInput.trim()) {
+    throw new Error("Senha incorreta.");
+  }
+
+  return { name: dbName, email: emailInput };
+}
+
+// --- ROTEADOR TRPC AJUSTADO ---
 const t = initTRPC.create();
 const appRouter = t.router({
   'auth.login': t.procedure
     .input(z.any())
     .mutation(async ({ input }) => {
-      console.log("[tRPC Extremo] Objeto bruto recebido no input:", JSON.stringify(input));
-
-      // Mapeamento profundo para achar as credenciais de qualquer jeito
+      // Mapeia username e email para capturar de qualquer formato
       const email = (
+        input?.username || 
+        input?.json?.username || 
         input?.email || 
         input?.json?.email || 
-        input?.[0]?.email || 
-        input?.[0]?.json?.email || 
         ""
       ).toLowerCase().trim();
 
       const password = String(
         input?.password || 
         input?.json?.password || 
-        input?.[0]?.password || 
-        input?.[0]?.json?.password || 
         ""
       ).trim();
 
-      console.log(`[tRPC Extremo] Credenciais extraídas -> Email: "${email}" | Senha: "${password}"`);
-
-      // Validação com os dados chumbados para garantir o isolamento
-      if (email === "frotas@rodotransfer.com.br" && password === "Rodo1704") {
-        console.log(`[tRPC Extremo] ✅ LOGIN COM DADOS FIXOS LIBERADO!`);
-        return { 
-          id: 1, 
-          name: "RODOTRANSFER LOCAL", 
-          email: "frotas@rodotransfer.com.br", 
-          message: "Sucesso" 
-        };
-      }
-
-      console.error(`[tRPC Extremo] ❌ Acesso negado para: "${email}"`);
-      throw new TRPCError({ code: 'UNAUTHORIZED', message: "Usuário ou senha incorretos." });
+      console.log(`[tRPC] Buscando no Google Sheets: Email/Username: "${email}"`);
+      
+      const user = await verificarUsuarioNaPlanilha(email, password);
+      console.log(`[tRPC] ✅ Login aceito para: ${user.name}`);
+      
+      return { 
+        id: 1, 
+        name: user.name, 
+        email: user.email, 
+        message: "Sucesso" 
+      };
     }),
 });
 
 export type AppRouter = typeof appRouter;
 
-// Roteador tradicional tRPC
 app.use("/api/trpc", trpcExpress.createExpressMiddleware({ router: appRouter }));
 
-// --- COMPATIBILIDADE EXTRA HTTP CONTRA OBJETOS EMBUTIDOS ---
-app.post("/api/trpc/auth.login", async (req, res) => {
-  console.log("[HTTP Fallback] Corpo bruto recebido no body:", JSON.stringify(req.body));
-  
-  const body = req.body || {};
-  const email = (body.email || body.json?.email || "").toLowerCase().trim();
-  const password = String(body.password || body.json?.password || "").trim();
-
-  if (email === "frotas@rodotransfer.com.br" && password === "Rodo1704") {
-    return res.status(200).json({ 
-      result: { data: { id: 1, name: "RODOTRANSFER LOCAL", email: email } } 
-    });
-  }
-
-  return res.status(401).json({ error: { message: "Usuário ou senha incorretos." } });
-});
-
+// Resposta de compatibilidade para o tRPC do front
 app.get("/api/trpc/auth.me", (req, res) => {
   res.status(200).json({ result: { data: null } });
 });
@@ -90,5 +124,5 @@ app.get("*", (req, res) => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor com varredura profunda rodando na porta ${PORT}`);
+  console.log(`🚀 Servidor corrigido rodando na porta ${PORT}`);
 });
