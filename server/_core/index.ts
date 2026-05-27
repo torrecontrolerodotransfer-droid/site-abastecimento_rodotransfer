@@ -100,44 +100,65 @@ export async function registerUser(name: string, email: string, passwordPlain: s
 // ROTAS DE AUTENTICAÇÃO (LOGIN E CADASTRO)
 // ==========================================
 
-// Rota onde o seu botão "Entrar" vai bater
-app.post("/api/login", async (req, res) => {
+// ==========================================
+// ROTAS DE AUTENTICAÇÃO (ADAPTADAS PARA TRPC)
+// ==========================================
+
+// Esta rota intercepta o clique do botão "Entrar" vindo do frontend tRPC
+app.post("/api/trpc/auth.login", async (req, res) => {
   try {
-    const { email, password } = req.body;
+    // O tRPC geralmente envia os dados dentro de um objeto chamado 'json' ou direto no body
+    // Vamos capturar das duas formas para garantir
+    const input = req.body.json || req.body;
+    const { email, password } = input;
 
     if (!email || !password) {
-      return res.status(400).json({ message: "E-mail e senha são obrigatórios." });
+      return res.status(400).json({
+        error: { message: "E-mail e senha são obrigatórios." }
+      });
     }
 
+    // Busca o usuário na Planilha do Google
     const user = await getUserByEmail(email);
 
     if (!user || user.password !== password) {
-      return res.status(401).json({ message: "E-mail ou senha incorretos." });
+      return res.status(401).json({
+        error: { message: "E-mail ou senha incorretos." }
+      });
     }
 
+    // Retorna a resposta no formato exato que o tRPC do Frontend espera receber
     return res.json({
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      message: "Login realizado com sucesso!"
+      result: {
+        data: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          message: "Login realizado com sucesso!"
+        }
+      }
     });
   } catch (error) {
-    console.error("Erro na rota de login:", error);
-    return res.status(500).json({ message: "Erro interno no servidor." });
+    console.error("Erro na rota de login tRPC:", error);
+    return res.status(500).json({
+      error: { message: "Erro interno no servidor." }
+    });
   }
 });
 
-// Rota para criar novos usuários via API
-app.post("/api/register", async (req, res) => {
+// Mantendo a rota tradicional caso alguma outra parte do código chame
+app.post("/api/login", async (req, res) => {
   try {
-    const { name, email, password } = req.body;
-    await registerUser(name, email, password);
-    res.json({ message: "Usuário registrado com sucesso!" });
-  } catch (error: any) {
-    res.status(400).json({ message: error.message || "Erro ao registrar." });
+    const { email, password } = req.body;
+    const user = await getUserByEmail(email);
+    if (!user || user.password !== password) {
+      return res.status(401).json({ message: "E-mail ou senha incorretos." });
+    }
+    return res.json({ id: user.id, name: user.name, email: user.email });
+  } catch (error) {
+    return res.status(500).json({ message: "Erro interno." });
   }
 });
-
 // ... Se você tiver as outras rotas/funções de abastecimentos (createRefueling, etc.), mantenha-as coladas aqui ...
 
 // --- ROTA CURINGA PARA O FRONTEND (Sempre antes do listen) ---
