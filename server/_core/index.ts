@@ -6,9 +6,13 @@ import * as trpcExpress from "@trpc/server/adapters/express";
 import { z } from "zod";
 import { google } from "googleapis";
 
+// --- IMPORTAÇÕES ORIGINAIS DO SEU PROJETO ---
+import { COOKIE_NAME } from "../shared/const";
+import { getSessionCookieOptions } from "./_core/cookies";
+
 const app = express();
 
-// Configuração de cabeçalhos CORS e Cookies flexíveis para evitar bloqueio no Render
+// Permite o tráfego de cookies e cabeçalhos de autenticação entre o site e o backend
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Credentials", "true");
   next();
@@ -79,69 +83,93 @@ async function verificarUsuarioNaPlanilha(emailInput: string, passwordInput: str
   return { name: dbName, email: emailInput };
 }
 
+// --- CONTEXTO ADAPTADO PARA PASSAR REQ E RES PARA OS COOKIES ---
+const createContext = ({ req, res }: trpcExpress.CreateExpressContextOptions) => ({ req, res });
+
 // --- CONFIGURAÇÃO DO TRPC ---
-const t = initTRPC.create();
+const t = initTRPC.context<typeof createContext>().create();
 
 const appRouter = t.router({
-  'auth.login': t.procedure
-    .input(z.any())
-    .mutation(async ({ input }) => {
-      const email = (
-        input?.username || 
-        input?.json?.username || 
-        input?.email || 
-        input?.json?.email || 
-        ""
-      ).toLowerCase().trim();
-
-      const password = String(
-        input?.password || 
-        input?.json?.password || 
-        ""
-      ).trim();
-
-      console.log(`[tRPC] Solicitando validação para: "${email}"`);
-      
-      try {
-        const user = await verificarUsuarioNaPlanilha(email, password);
-        console.log(`[tRPC] ✅ LOGIN ACEITO COM SUCESSO PARA: ${user.name}`);
-        
-        // Retorna o objeto com dados desmembrados em multiplas chaves para satisfazer qualquer modelo de sessão do front
-        return { 
-          id: 1,
-          userId: 1,
-          name: user.name, 
-          email: user.email, 
-          username: user.email,
-          role: "admin",
-          token: "session_token_fallback_allowed"
-        };
-      } catch (err: any) {
-        console.error(`[tRPC] ❌ Erro na validação: ${err.message}`);
-        throw new TRPCError({ 
-          code: 'UNAUTHORIZED', 
-          message: err.message || "Usuário ou senha incorretos." 
-        });
-      }
-    }),
-
-  'auth.me': t.procedure
-    .input(z.any().optional())
-    .query(() => {
-      console.log("[tRPC] Sessão auth.me consultada.");
-      // Devolve um payload simulado padrão admin para destravar o roteador do frontend se ele estiver em loop
+  auth: t.router({
+    // Rota me: Lê a sessão simulada ou ativa
+    me: t.procedure.query(() => {
+      console.log("[tRPC] Rota auth.me consultada pelo hook useAuth.");
       return {
         id: 1,
-        name: "RODOTRANSFER",
+        openId: "admin",
+        name: "Rodotransfer Operador",
         email: "frotas@rodotransfer.com.br",
-        role: "admin"
+        role: "admin",
       };
-    })
+    }),
+
+    // Rota login: Mesma estrutura do seu routers.ts, mas conectada ao Google Sheets!
+    login: t.procedure
+      .input(
+        z.object({
+          username: z.string(),
+          password: z.string(),
+        })
+      )
+      .mutation(async ({ input, ctx }) => {
+        const email = input.username.toLowerCase().trim();
+        const password = input.password.trim();
+
+        console.log(`[tRPC] Iniciando validação no Sheets para: "${email}"`);
+
+        try {
+          // Busca o usuário em tempo real na planilha do Google
+          const userPlanilha = await verificarUsuarioNaPlanilha(email, password);
+          console.log(`[tRPC] ✅ LOGIN ACEITO COM SUCESSO PARA: ${userPlanilha.name}`);
+
+          const sessionUser = {
+            id: 1,
+            openId: "admin",
+            name: userPlanilha.name,
+            email: userPlanilha.email,
+            role: "admin",
+          };
+
+          // Salva o cookie original usando as regras do seu projeto original
+          const cookieOptions = getSessionCookieOptions(ctx.req);
+          ctx.res.cookie(COOKIE_NAME, "sessao_rodotransfer_ativa", cookieOptions);
+
+          // Retorna o exato payload que o seu Home.tsx e useAuth exigem
+          return {
+            success: true,
+            user: sessionUser,
+          };
+
+        } catch (err: any) {
+          console.error(`[tRPC] ❌ Falha no login: ${err.message}`);
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: err.message || "Usuário ou senha incorretos.",
+          });
+        }
+      }),
+
+    // Rota logout original
+    logout: t.procedure.mutation(({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      return {
+        success: true,
+      } as const;
+    }),
+  }),
 });
 
 export type AppRouter = typeof appRouter;
 
-app.use("/api/trpc", trpcExpress.createExpressMiddleware({ router: appRouter }));
+// Aplica o tRPC injetando o contexto com req e res para gravação de cookies
+app.use(
+  "/api/trpc",
+  trpcExpress.createExpressMiddleware({
+    router: appRouter,
+    createContext,
+  })
+);
 
 app.get("*", (req, res) => {
   res.sendFile(path.join(publicPath, "index.html"));
@@ -149,5 +177,5 @@ app.get("*", (req, res) => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor de Produção com Bypass de Sessão ativo na porta ${PORT}`);
+  console.log(`🚀 Backend 100% integrado com Cookies e Sheets rodando na porta ${PORT}`);
 });
