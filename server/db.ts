@@ -52,62 +52,58 @@ async function getSheetDoc() {
 // ==========================================
 // OPERAÇÕES DE USUÁRIOS
 // ==========================================
-export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) throw new Error("User openId is required for upsert");
-  try {
-    const doc = await getSheetDoc();
-    const sheet = doc.sheetsByTitle['usuarios'];
-    if (!sheet) throw new Error("Aba 'usuarios' não encontrada na planilha");
+// ==========================================
+// OPERAÇÕES DE USUÁRIOS (100% INDEPENDENTE)
+// ==========================================
 
-    const rows = await sheet.getRows();
-    const existingRow = rows.find(r => r.get('openId') === user.openId);
-
-    const role = user.role || (user.openId === ENV.ownerOpenId ? 'admin' : 'user');
-    const dateStr = (user.lastSignedIn || new Date()).toISOString();
-
-    const rowData = {
-      openId: user.openId,
-      name: user.name || '',
-      email: user.email || '',
-      loginMethod: user.loginMethod || '',
-      lastSignedIn: dateStr,
-      role: role
-    };
-
-    if (existingRow) {
-      existingRow.assign(rowData);
-      await existingRow.save();
-    } else {
-      await sheet.addRow(rowData);
-    }
-  } catch (error) {
-    console.error("Erro ao salvar usuário no Sheets:", error);
-  }
-}
-
-export async function getUserByOpenId(openId: string) {
+// Função para buscar usuário por E-mail (usada no Login)
+export async function getUserByEmail(email: string) {
   try {
     const doc = await getSheetDoc();
     const sheet = doc.sheetsByTitle['usuarios'];
     if (!sheet) return undefined;
 
     const rows = await sheet.getRows();
-    const found = rows.find(r => r.get('openId') === openId);
+    const found = rows.find(r => r.get('email') === email);
 
     if (!found) return undefined;
 
-    // Retorna no formato simulando o banco de dados
     return {
-      id: found.rowNumber, // usa o número da linha como ID numérico temporário
-      openId: found.get('openId'),
+      id: found.rowNumber, // usa o número da linha como ID numérico
       name: found.get('name'),
       email: found.get('email'),
-      loginMethod: found.get('loginMethod'),
-      lastSignedIn: new Date(found.get('lastSignedIn')),
-      role: found.get('role')
+      password: found.get('password'), // Senha salva na planilha
     };
   } catch (error) {
+    console.error("Erro ao buscar usuário por email:", error);
     return undefined;
+  }
+}
+
+// Função para Cadastrar um novo usuário diretamente na Planilha
+export async function registerUser(name: string, email: string, passwordPlain: string): Promise<void> {
+  try {
+    const doc = await getSheetDoc();
+    const sheet = doc.sheetsByTitle['usuarios'];
+    if (!sheet) throw new Error("Aba 'usuarios' não encontrada na planilha");
+
+    const rows = await sheet.getRows();
+    
+    // Evita cadastrar e-mails duplicados
+    const exists = rows.some(r => r.get('email') === email);
+    if (exists) throw new Error("Este e-mail já está cadastrado.");
+
+    const rowData = {
+      id: (rows.length + 1).toString(),
+      name: name,
+      email: email,
+      password: passwordPlain // Em produção, o ideal é usar bcrypt para criptografar
+    };
+
+    await sheet.addRow(rowData);
+  } catch (error) {
+    console.error("Erro ao registrar usuário no Sheets:", error);
+    throw error;
   }
 }
 

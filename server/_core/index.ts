@@ -1,66 +1,130 @@
-import "dotenv/config";
 import express from "express";
-import { createServer } from "http";
-import net from "net";
-import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
-import { registerStorageProxy } from "./storageProxy";
-import { appRouter } from "../routers";
-import { createContext } from "./context";
-import { serveStatic, setupVite } from "./vite";
+import { GoogleSpreadsheet } from 'google-spreadsheet';
+import { JWT } from 'google-auth-library';
+import { ENV } from './env';
 
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise(resolve => {
-    const server = net.createServer();
-    server.listen(port, () => {
-      server.close(() => resolve(true));
-    });
-    server.on("error", () => resolve(false));
+const app = express();
+app.use(express.json());
+
+// ==========================================
+// CONEXÃO COM O GOOGLE SHEETS
+// ==========================================
+async function getSheetDoc() {
+  const privateKey = ENV.googlePrivateKey ? ENV.googlePrivateKey.replace(/\\n/g, '\n') : '';
+  
+  const serviceAccountAuth = new JWT({
+    email: ENV.googleServiceAccountEmail,
+    key: privateKey,
+    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });
+
+  const doc = new GoogleSpreadsheet(ENV.googleSheetId || '', serviceAccountAuth);
+  await doc.loadInfo();
+  return doc;
 }
 
-async function findAvailablePort(startPort: number = 3000): Promise<number> {
-  for (let port = startPort; port < startPort + 20; port++) {
-    if (await isPortAvailable(port)) {
-      return port;
+// ==========================================
+// OPERAÇÕES DE USUÁRIOS (100% INDEPENDENTE)
+// ==========================================
+
+// Função para buscar usuário por E-mail (usada no Login)
+export async function getUserByEmail(email: string) {
+  try {
+    const doc = await getSheetDoc();
+    const sheet = doc.sheetsByTitle['usuarios'];
+    if (!sheet) return undefined;
+
+    const rows = await sheet.getRows();
+    const found = rows.find(r => r.get('email') === email);
+
+    if (!found) return undefined;
+
+    return {
+      id: found.rowNumber, 
+      name: found.get('name'),
+      email: found.get('email'),
+      password: found.get('password'), 
+    };
+  } catch (error) {
+    console.error("Erro ao buscar usuário por email:", error);
+    return undefined;
+  }
+}
+
+// Função para Cadastrar um novo usuário diretamente na Planilha
+export async function registerUser(name: string, email: string, passwordPlain: string): Promise<void> {
+  try {
+    const doc = await getSheetDoc();
+    const sheet = doc.sheetsByTitle['usuarios'];
+    if (!sheet) throw new Error("Aba 'usuarios' não encontrada na planilha");
+
+    const rows = await sheet.getRows();
+    
+    const exists = rows.some(r => r.get('email') === email);
+    if (exists) throw new Error("Este e-mail já está cadastrado.");
+
+    const rowData = {
+      id: (rows.length + 1).toString(),
+      name: name,
+      email: email,
+      password: passwordPlain 
+    };
+
+    await sheet.addRow(rowData);
+  } catch (error) {
+    console.error("Erro ao registrar usuário no Sheets:", error);
+    throw error;
+  }
+}
+
+// ==========================================
+// ROTAS DE AUTENTICAÇÃO (LOGIN E CADASTRO)
+// ==========================================
+
+// Rota onde o seu botão "Entrar" vai bater
+app.post("/api/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ message: "E-mail e senha são obrigatórios." });
     }
+
+    // Busca diretamente na planilha usando a função acima
+    const user = await getUserByEmail(email);
+
+    if (!user || user.password !== password) {
+      return res.status(401).json({ message: "E-mail ou senha incorretos." });
+    }
+
+    // Login com sucesso! Retorna os dados do usuário para o Frontend
+    return res.json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      message: "Login realizado com sucesso!"
+    });
+  } catch (error) {
+    console.error("Erro na rota de login:", error);
+    return res.status(500).json({ message: "Erro interno no servidor." });
   }
-  throw new Error(`No available port found starting from ${startPort}`);
-}
+});
 
-async function startServer() {
-  const app = express();
-  const server = createServer(app);
-  // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
-  registerStorageProxy(app);
-  registerOAuthRoutes(app);
-  // tRPC API
-  app.use(
-    "/api/trpc",
-    createExpressMiddleware({
-      router: appRouter,
-      createContext,
-    })
-  );
-  // development mode uses Vite, production mode uses static files
-  if (process.env.NODE_ENV === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
+// Rota opcional para criar novos usuários via API se precisar
+app.post("/api/register", async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    await registerUser(name, email, password);
+    return res.json({ message: "Usuário registrado com sucesso!" });
+  } catch (error: any) {
+    return res.status(400).json({ message: error.message || "Erro ao registrar." });
   }
+} as express.RequestHandler);
 
-  const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
+// ... Você pode manter ou colar aqui abaixo as outras funções de abastecimentos (createRefueling, etc.) se o seu arquivo original tinha elas.
 
-  if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
-  }
-
-  server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
-  });
-}
-
-startServer().catch(console.error);
+// Inicialização do servidor
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`🚀 Servidor rodando de forma independente na porta ${PORT}`);
+});
