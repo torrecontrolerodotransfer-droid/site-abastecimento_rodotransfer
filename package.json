@@ -59,6 +59,7 @@
     "framer-motion": "^12.23.22",
     "google-auth-library": "^9.15.1",
     "google-spreadsheet": "^5.2.0",
+    "googleapis": "^172.0.0",
     "input-otp": "^1.4.2",
     "jose": "6.1.0",
     "lucide-react": "^0.453.0",
