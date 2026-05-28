@@ -34,7 +34,6 @@ export const appRouter = router({
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     
-    // NOVA ROTA DE LOGIN EXCLUSIVA PARA A RODOTRANSFER
     login: publicProcedure
       .input(
         z.object({
@@ -43,10 +42,10 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        // CREDENCIAIS ATUALIZADAS
         const expectedUser = process.env.ADMIN_USERNAME || "RODOTRANSFER";
-        const expectedPass = process.env.JWT_SECRET || "Rodo1704";
+        const expectedPass = process.env.JWT_SECRET || "Rodotransfer2026";
 
-        // Validação da senha e usuário fixos
         if (
           input.username.toUpperCase() !== expectedUser.toUpperCase() ||
           input.password !== expectedPass
@@ -57,7 +56,6 @@ export const appRouter = router({
           });
         }
 
-        // Criar uma sessão simulada para o motorista logado
         const sessionUser = {
           id: 1,
           openId: "admin",
@@ -66,9 +64,7 @@ export const appRouter = router({
           role: "admin",
         };
 
-        // Salva o cookie de autenticação para o site saber que o usuário está logado
         const cookieOptions = getSessionCookieOptions(ctx.req);
-        // Aqui usamos uma string simples simulada para o token de sessão ativa
         ctx.res.cookie(COOKIE_NAME, "sessao_rodotransfer_ativa", cookieOptions);
 
         return {

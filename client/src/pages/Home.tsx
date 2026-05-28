@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { User, Lock, Fuel, LogOut, Plus, List, BarChart3 } from "lucide-react";
@@ -10,27 +10,22 @@ export default function Home() {
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // 1. Corrigido: Removido 'onError' do useQuery (não é mais suportado nas versões novas)
-  const { data: session, isLoading: sessionLoading, refetch, isError } = trpc.auth.me.useQuery(undefined, {
+  // Checa a sessão inicial
+  const { data: session, isLoading: sessionLoading, refetch } = trpc.auth.me.useQuery(undefined, {
     retry: false,
   });
 
-  // 2. Mutação de login
+  // Mutação oficial agora protegida pelo transformer superjson
   const loginMutation = trpc.auth.login.useMutation({
-    onSuccess: async (data) => {
-      if (data && data.success) {
-        await refetch();
+    onSuccess: () => {
+      refetch().then(() => {
         window.location.reload();
-      } else {
-        setErrorMsg("Usuário ou senha incorretos.");
-        setLoading(false);
-      }
+      });
     },
     onError: (err) => {
       setLoading(false);
-      console.error("Erro no login:", err);
-      setErrorMsg(err.message || "Erro ao conectar com o servidor.");
-    }
+      setErrorMsg(err.message || "Usuário ou senha incorretos.");
+    },
   });
 
   const handleInternalLogin = async (e: React.FormEvent) => {
@@ -38,19 +33,10 @@ export default function Home() {
     setErrorMsg("");
     setLoading(true);
 
-    loginMutation.mutate({
-      username: username.trim(),
-      password: password.trim(),
+    loginMutation.mutate({ 
+      username: username.trim(), 
+      password: password.trim() 
     });
-  };
-
-  const handleLogout = async () => {
-    try {
-      await fetch("/api/trpc/auth.logout", { method: "POST" });
-      window.location.reload();
-    } catch (err) {
-      console.error("Erro ao sair:", err);
-    }
   };
 
   if (sessionLoading) {
@@ -65,7 +51,6 @@ export default function Home() {
     return (
       <div className="min-h-screen bg-[#FAF9F6] flex flex-col items-center justify-center px-4 py-8">
         <div className="max-w-md w-full space-y-6 text-center">
-          
           <div className="flex justify-center mb-2">
             <img 
               src="https://i.ibb.co/RG2bmMsv/Logo-branca.png" 
@@ -74,18 +59,16 @@ export default function Home() {
               style={{ filter: "brightness(0.15)" }} 
             />
           </div>
-
           <h1 className="text-2xl font-bold text-[#2F4F4F]">Sistema de Abastecimento</h1>
           <p className="text-emerald-800 font-medium text-sm tracking-wider uppercase">Centro de Operações Logísticas</p>
 
           <Card className="p-6 bg-[#f3f1eb] border-slate-300/60 shadow-md text-left">
-            <form onSubmit={handleInternalLogin} className="space-y-4" autoComplete="off">
+            <form onSubmit={handleInternalLogin} className="space-y-4">
               {errorMsg && (
                 <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-700 text-sm text-center font-medium">
                   {errorMsg}
                 </div>
               )}
-
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Usuário</label>
                 <div className="relative">
@@ -93,15 +76,13 @@ export default function Home() {
                   <input
                     type="text"
                     required
-                    autoComplete="off"
                     placeholder="Ex: RODOTRANSFER"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-lg py-2 pl-10 pr-4 text-slate-800 focus:outline-none focus:border-[#E9967A] focus:ring-1 focus:ring-[#E9967A]"
+                    className="w-full bg-white border border-slate-300 rounded-lg py-2 pl-10 pr-4 text-slate-800 focus:outline-none focus:border-[#E9967A]"
                   />
                 </div>
               </div>
-
               <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-600 uppercase tracking-wide">Senha</label>
                 <div className="relative">
@@ -109,20 +90,14 @@ export default function Home() {
                   <input
                     type="password"
                     required
-                    autoComplete="new-password"
                     placeholder="Digite sua senha"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded-lg py-2 pl-10 pr-4 text-slate-800 focus:outline-none focus:border-[#E9967A] focus:ring-1 focus:ring-[#E9967A]"
+                    className="w-full bg-white border border-slate-300 rounded-lg py-2 pl-10 pr-4 text-slate-800 focus:outline-none focus:border-[#E9967A]"
                   />
                 </div>
               </div>
-
-              <Button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-[#E9967A] hover:bg-[#df8567] text-white font-bold py-2.5 text-base rounded-lg transition-colors mt-4 shadow-sm"
-              >
+              <Button type="submit" disabled={loading} className="w-full bg-[#E9967A] hover:bg-[#df8567] text-white font-bold py-2.5 mt-4">
                 {loading ? "Verificando..." : "Entrar"}
               </Button>
             </form>
@@ -134,56 +109,34 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      {/* Menu Administrativo Padrão */}
       <div className="sticky top-0 z-10 bg-white border-b border-slate-200 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-emerald-500/10 rounded-lg">
-              <Fuel className="w-5 h-5 text-emerald-600" />
-            </div>
+            <Fuel className="w-5 h-5 text-emerald-600" />
             <div>
               <h1 className="text-base font-bold text-slate-900">Sistema de Abastecimento</h1>
-              <p className="text-xs text-slate-500">Operador: {session.name || "Rodotransfer Operador"}</p>
+              <p className="text-xs text-slate-500">Operador: {session.name || "Rodotransfer"}</p>
             </div>
           </div>
-          <button 
-            onClick={handleLogout} 
-            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-          >
+          <button onClick={() => fetch("/api/trpc/auth.logout", { method: "POST" }).then(() => window.location.reload())}>
             <LogOut className="w-5 h-5 text-slate-600" />
           </button>
         </div>
       </div>
-
       <div className="max-w-4xl mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <Card onClick={() => (window.location.href = "/new")} className="p-6 bg-white border-slate-200 shadow-sm hover:shadow-md hover:border-[#E9967A] cursor-pointer transition-all group">
-            <div className="flex items-start justify-between mb-3">
-              <div className="p-3 bg-emerald-500/10 group-hover:bg-emerald-500/20 rounded-lg">
-                <Plus className="w-6 h-6 text-emerald-600" />
-              </div>
-            </div>
-            <h3 className="text-lg font-semibold text-slate-900 mb-1">Novo Abastecimento</h3>
-            <p className="text-sm text-slate-600">Registre dados e foto do cupom fiscal</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card onClick={() => (window.location.href = "/new")} className="p-6 bg-white shadow-sm hover:border-[#E9967A] cursor-pointer">
+            <Plus className="w-6 h-6 text-emerald-600 mb-2" />
+            <h3 className="font-semibold text-slate-900">Novo Abastecimento</h3>
           </Card>
-
-          <Card onClick={() => (window.location.href = "/refuelings")} className="p-6 bg-white border-slate-200 shadow-sm hover:shadow-md hover:border-[#E9967A] cursor-pointer transition-all group">
-            <div className="flex items-start justify-between mb-3">
-              <div className="p-3 bg-blue-500/10 group-hover:bg-blue-500/20 rounded-lg">
-                <List className="w-6 h-6 text-blue-600" />
-              </div>
-            </div>
-            <h3 className="text-lg font-semibold text-slate-900 mb-1">Abastecimentos</h3>
-            <p className="text-sm text-slate-600">Lista completa dos registros efetuados</p>
+          <Card onClick={() => (window.location.href = "/refuelings")} className="p-6 bg-white shadow-sm hover:border-[#E9967A] cursor-pointer">
+            <List className="w-6 h-6 text-blue-600 mb-2" />
+            <h3 className="font-semibold text-slate-900">Abastecimentos</h3>
           </Card>
-
-          <Card onClick={() => (window.location.href = "/dashboard")} className="p-6 bg-white border-slate-200 shadow-sm hover:shadow-md hover:border-[#E9967A] cursor-pointer transition-all group">
-            <div className="flex items-start justify-between mb-3">
-              <div className="p-3 bg-purple-500/10 group-hover:bg-purple-500/20 rounded-lg">
-                <BarChart3 className="w-6 h-6 text-purple-600" />
-              </div>
-            </div>
-            <h3 className="text-lg font-semibold text-slate-900 mb-1">Dashboard</h3>
-            <p className="text-sm text-slate-600">Análise de consumos e relatórios corporativos</p>
+          <Card onClick={() => (window.location.href = "/dashboard")} className="p-6 bg-white shadow-sm hover:border-[#E9967A] cursor-pointer">
+            <BarChart3 className="w-6 h-6 text-purple-600 mb-2" />
+            <h3 className="font-semibold text-slate-900">Dashboard</h3>
           </Card>
         </div>
       </div>
