@@ -3,26 +3,61 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { User, Lock, Fuel, LogOut, Plus, List, BarChart3 } from "lucide-react";
+import { trpc } from "../main"; // Se o seu cliente trpc estiver no App.tsx ou main.tsx, certifique-se de importá-lo corretamente.
 
 export default function Home() {
-  const { user, isAuthenticated, login, logout } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Tentativa usando o método nativo do tRPC injetado no projeto
+  const loginMutation = (trpc as any)?.auth?.login?.useMutation?.({
+    onSuccess: () => {
+      window.location.reload();
+    },
+    onError: (err: any) => {
+      setLoading(false);
+      setErrorMsg(err.message || "Usuário ou senha incorretos.");
+    }
+  });
 
   const handleInternalLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
     setLoading(true);
 
+    // Se o hook do tRPC estiver disponível, usamos ele para garantir a formatação correta
+    if (loginMutation) {
+      loginMutation.mutate({ username, password });
+      return;
+    }
+
+    // Caso contrário, fazemos o envio manual com a estrutura exata exigida pelo tRPC v11
     try {
-      // Utiliza o método de login nativo injetado pelo contexto de autenticação do projeto
-      await login(username, password);
-      window.location.reload();
-    } catch (err: any) {
+      const response = await fetch("/api/trpc/auth.login?batch=1", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          "0": { username, password }
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && !data[0]?.error) {
+        window.location.reload();
+      } else {
+        const errorDetail = data[0]?.error?.json?.message || "Usuário ou senha incorretos.";
+        setErrorMsg(errorDetail);
+        setLoading(false);
+      }
+    } catch (err) {
       setLoading(false);
-      setErrorMsg(err?.message || "Usuário ou senha incorretos.");
+      setErrorMsg("Erro ao conectar com o servidor.");
     }
   };
 
