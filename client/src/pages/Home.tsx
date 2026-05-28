@@ -13,6 +13,28 @@ export default function Home() {
   // Verifica se o usuário já possui sessão ativa
   const { data: session, isLoading: sessionLoading, refetch } = trpc.auth.me.useQuery(undefined, {
     retry: false,
+    // Evita que o erro de "não logado" apareça como um erro crítico no console
+    onError: () => {
+      console.log("Nenhuma sessão ativa encontrada.");
+    }
+  });
+
+  // Mutação para realizar o login via tRPC
+  const loginMutation = trpc.auth.login.useMutation({
+    onSuccess: async (data) => {
+      // Ajuste 'data.success' conforme o retorno real do seu backend
+      if (data && (data.success || data.id)) {
+        await refetch();
+        window.location.reload();
+      } else {
+        setErrorMsg("Usuário ou senha incorretos.");
+        setLoading(false);
+      }
+    },
+    onError: (err) => {
+      setLoading(false);
+      setErrorMsg(err.message || "Erro ao conectar com o servidor.");
+    }
   });
 
   const handleInternalLogin = async (e: React.FormEvent) => {
@@ -20,41 +42,21 @@ export default function Home() {
     setErrorMsg("");
     setLoading(true);
 
-    // Sanitiza limpando espaços em branco acidentais
-    const cleanUsername = username.trim();
-    const cleanPassword = password.trim();
+    // Chama a mutação do tRPC - isso lida automaticamente com a serialização e cookies
+    loginMutation.mutate({
+      username: username.trim(),
+      password: password.trim(),
+    });
+  };
 
+  const handleLogout = async () => {
     try {
-      // Passamos um parâmetro extra de timestamp v=... para quebrar qualquer cache do navegador antigo
-      const response = await fetch(`/api/trpc/auth.login?batch=1&v=${Date.now()}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          "0": {
-            "json": {
-              username: cleanUsername,
-              password: cleanPassword
-            }
-          }
-        }),
-      });
-
-      const data = await response.json();
-      const result = data[0];
-
-      if (response.ok && (result?.result?.data?.json?.success || result?.result?.data?.success)) {
-        await refetch();
-        window.location.reload();
-      } else {
-        const message = result?.error?.json?.message || "Usuário ou senha incorretos.";
-        setErrorMsg(message);
-        setLoading(false);
-      }
+      // Se você tiver uma mutation de logout no tRPC, use-a aqui. 
+      // Caso contrário, mantemos o fetch simples ou adaptamos para trpc.auth.logout.useMutation
+      await fetch("/api/trpc/auth.logout", { method: "POST" });
+      window.location.reload();
     } catch (err) {
-      setLoading(false);
-      setErrorMsg("Erro ao conectar com o servidor.");
+      console.error("Erro ao sair:", err);
     }
   };
 
@@ -66,6 +68,7 @@ export default function Home() {
     );
   }
 
+  // Se não houver sessão, exibe a tela de login
   if (!session) {
     return (
       <div className="min-h-screen bg-[#FAF9F6] flex flex-col items-center justify-center px-4 py-8">
@@ -137,6 +140,7 @@ export default function Home() {
     );
   }
 
+  // Se estiver logado, exibe o Dashboard
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="sticky top-0 z-10 bg-white border-b border-slate-200 shadow-sm">
@@ -151,11 +155,7 @@ export default function Home() {
             </div>
           </div>
           <button 
-            onClick={() => {
-              fetch("/api/trpc/auth.logout", { method: "POST" }).then(() => {
-                window.location.reload();
-              });
-            }} 
+            onClick={handleLogout} 
             className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
           >
             <LogOut className="w-5 h-5 text-slate-600" />
