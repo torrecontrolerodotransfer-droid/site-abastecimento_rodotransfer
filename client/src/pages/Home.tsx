@@ -3,28 +3,34 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { User, Lock, Fuel, LogOut, Plus, List, BarChart3 } from "lucide-react";
+// Importação nativa e segura do trpc do próprio projeto Lovable
+import { trpc } from "@/utils/trpc"; 
 
 export default function Home() {
-  const { user, isAuthenticated, login, logout } = useAuth();
+  const { user, isAuthenticated, logout } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Usando a estrutura de mutação correta que o seu back-end tRPC espera
+  const loginMutation = trpc.auth.login.useMutation({
+    onSuccess: () => {
+      window.location.reload();
+    },
+    onError: (err) => {
+      setLoading(false);
+      setErrorMsg(err.message || "Usuário ou senha incorretos.");
+    },
+  });
 
   const handleInternalLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg("");
     setLoading(true);
 
-    try {
-      // Usa o método padrão do projeto que já funcionava sem erros de URL
-      await login(username, password);
-      window.location.reload();
-    } catch (err: any) {
-      setLoading(false);
-      // Exibe o erro real retornado para sabermos se o problema é a senha/usuário
-      setErrorMsg(err?.message || "Usuário ou senha incorretos.");
-    }
+    // Dispara a mutação nativa envelopada perfeitamente para o servidor
+    loginMutation.mutate({ username, password });
   };
 
   if (!isAuthenticated) {
