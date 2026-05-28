@@ -10,7 +10,7 @@ export default function Home() {
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Mantemos o me.useQuery apenas para saber se o cookie já deu autorização
+  // Verifica se o usuário já possui sessão ativa
   const { data: session, isLoading: sessionLoading, refetch } = trpc.auth.me.useQuery(undefined, {
     retry: false,
   });
@@ -20,9 +20,13 @@ export default function Home() {
     setErrorMsg("");
     setLoading(true);
 
+    // Sanitiza limpando espaços em branco acidentais
+    const cleanUsername = username.trim();
+    const cleanPassword = password.trim();
+
     try {
-      // Fazemos o POST diretamente na rota do tRPC contornando o erro de serialização do cliente
-      const response = await fetch("/api/trpc/auth.login?batch=1", {
+      // Passamos um parâmetro extra de timestamp v=... para quebrar qualquer cache do navegador antigo
+      const response = await fetch(`/api/trpc/auth.login?batch=1&v=${Date.now()}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -30,24 +34,20 @@ export default function Home() {
         body: JSON.stringify({
           "0": {
             "json": {
-              username: username,
-              password: password
+              username: cleanUsername,
+              password: cleanPassword
             }
           }
         }),
       });
 
       const data = await response.json();
-      
-      // Captura o retorno do array batch do tRPC
       const result = data[0];
 
-      if (response.ok && result?.result?.data?.json?.success) {
-        // Se deu sucesso, atualiza o tRPC e recarrega a página autenticada
+      if (response.ok && (result?.result?.data?.json?.success || result?.result?.data?.success)) {
         await refetch();
         window.location.reload();
       } else {
-        // Captura a mensagem de erro vinda do servidor de forma limpa
         const message = result?.error?.json?.message || "Usuário ou senha incorretos.";
         setErrorMsg(message);
         setLoading(false);
@@ -84,7 +84,7 @@ export default function Home() {
           <p className="text-emerald-800 font-medium text-sm tracking-wider uppercase">Centro de Operações Logísticas</p>
 
           <Card className="p-6 bg-[#f3f1eb] border-slate-300/60 shadow-md text-left">
-            <form onSubmit={handleInternalLogin} className="space-y-4">
+            <form onSubmit={handleInternalLogin} className="space-y-4" autoComplete="off">
               {errorMsg && (
                 <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-700 text-sm text-center font-medium">
                   {errorMsg}
@@ -98,6 +98,7 @@ export default function Home() {
                   <input
                     type="text"
                     required
+                    autoComplete="off"
                     placeholder="Ex: RODOTRANSFER"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
@@ -113,6 +114,7 @@ export default function Home() {
                   <input
                     type="password"
                     required
+                    autoComplete="new-password"
                     placeholder="Digite sua senha"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
