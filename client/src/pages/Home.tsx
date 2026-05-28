@@ -2,33 +2,17 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { User, Lock, Fuel, LogOut, Plus, List, BarChart3 } from "lucide-react";
-// Importação oficial do tRPC do seu projeto Lovable
 import { trpc } from "@/lib/trpc"; 
 
 export default function Home() {
-  // Estados iniciando estritamente vazios para evitar preenchimentos fantasmas ou incorretos
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Consulta nativa para checar se o cookie de sessão já está ativo
+  // Mantemos o me.useQuery apenas para saber se o cookie já deu autorização
   const { data: session, isLoading: sessionLoading, refetch } = trpc.auth.me.useQuery(undefined, {
     retry: false,
-  });
-
-  // Mutação de login mapeada do seu appRouter
-  const loginMutation = trpc.auth.login.useMutation({
-    onSuccess: () => {
-      // Atualiza a query de sessão e recarrega para o painel principal
-      refetch().then(() => {
-        window.location.reload();
-      });
-    },
-    onError: (err) => {
-      setLoading(false);
-      setErrorMsg(err.message || "Usuário ou senha incorretos.");
-    },
   });
 
   const handleInternalLogin = async (e: React.FormEvent) => {
@@ -36,11 +20,44 @@ export default function Home() {
     setErrorMsg("");
     setLoading(true);
 
-    // Dispara a mutação enviando o objeto limpo para validação do Zod no servidor
-    loginMutation.mutate({ username, password });
+    try {
+      // Fazemos o POST diretamente na rota do tRPC contornando o erro de serialização do cliente
+      const response = await fetch("/api/trpc/auth.login?batch=1", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          "0": {
+            "json": {
+              username: username,
+              password: password
+            }
+          }
+        }),
+      });
+
+      const data = await response.json();
+      
+      // Captura o retorno do array batch do tRPC
+      const result = data[0];
+
+      if (response.ok && result?.result?.data?.json?.success) {
+        // Se deu sucesso, atualiza o tRPC e recarrega a página autenticada
+        await refetch();
+        window.location.reload();
+      } else {
+        // Captura a mensagem de erro vinda do servidor de forma limpa
+        const message = result?.error?.json?.message || "Usuário ou senha incorretos.";
+        setErrorMsg(message);
+        setLoading(false);
+      }
+    } catch (err) {
+      setLoading(false);
+      setErrorMsg("Erro ao conectar com o servidor.");
+    }
   };
 
-  // Tela de transição enquanto valida o cookie
   if (sessionLoading) {
     return (
       <div className="min-h-screen bg-[#FAF9F6] flex items-center justify-center">
@@ -49,7 +66,6 @@ export default function Home() {
     );
   }
 
-  // Se não estiver logado, renderiza o formulário (Bege padrão Rodotransfer)
   if (!session) {
     return (
       <div className="min-h-screen bg-[#FAF9F6] flex flex-col items-center justify-center px-4 py-8">
@@ -119,7 +135,6 @@ export default function Home() {
     );
   }
 
-  // Painel Administrativo liberado após validação positiva do cookie pelo servidor
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="sticky top-0 z-10 bg-white border-b border-slate-200 shadow-sm">
@@ -135,7 +150,6 @@ export default function Home() {
           </div>
           <button 
             onClick={() => {
-              // Executa o logout limpando os cookies diretamente no servidor
               fetch("/api/trpc/auth.logout", { method: "POST" }).then(() => {
                 window.location.reload();
               });
