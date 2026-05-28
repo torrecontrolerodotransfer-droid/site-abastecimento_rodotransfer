@@ -2,24 +2,25 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { User, Lock, Fuel, LogOut, Plus, List, BarChart3 } from "lucide-react";
-// Importação oficial e segura que descobrimos no seu main.tsx
+// Importação oficial do tRPC do seu projeto Lovable
 import { trpc } from "@/lib/trpc"; 
 
 export default function Home() {
+  // Estados iniciando estritamente vazios para evitar preenchimentos fantasmas ou incorretos
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Consulta nativa do tRPC para verificar se o cookie de sessão está ativo no navegador
+  // Consulta nativa para checar se o cookie de sessão já está ativo
   const { data: session, isLoading: sessionLoading, refetch } = trpc.auth.me.useQuery(undefined, {
     retry: false,
   });
 
-  // Mutação oficial de login mapeada diretamente do seu appRouter do servidor
+  // Mutação de login mapeada do seu appRouter
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: () => {
-      // Atualiza o estado da query de sessão e recarrega a página autenticada
+      // Atualiza a query de sessão e recarrega para o painel principal
       refetch().then(() => {
         window.location.reload();
       });
@@ -35,11 +36,11 @@ export default function Home() {
     setErrorMsg("");
     setLoading(true);
 
-    // Envia os dados estruturados no formato exato que o Zod espera no servidor
+    // Dispara a mutação enviando o objeto limpo para validação do Zod no servidor
     loginMutation.mutate({ username, password });
   };
 
-  // Tela de carregamento enquanto o servidor verifica os cookies de sessão
+  // Tela de transição enquanto valida o cookie
   if (sessionLoading) {
     return (
       <div className="min-h-screen bg-[#FAF9F6] flex items-center justify-center">
@@ -48,7 +49,7 @@ export default function Home() {
     );
   }
 
-  // Se o servidor retornar que não há sessão ativa, exibe a tela de login (Padrão Rodotransfer)
+  // Se não estiver logado, renderiza o formulário (Bege padrão Rodotransfer)
   if (!session) {
     return (
       <div className="min-h-screen bg-[#FAF9F6] flex flex-col items-center justify-center px-4 py-8">
@@ -118,7 +119,7 @@ export default function Home() {
     );
   }
 
-  // Se a sessão existir, libera o Painel Principal com os recursos do sistema
+  // Painel Administrativo liberado após validação positiva do cookie pelo servidor
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="sticky top-0 z-10 bg-white border-b border-slate-200 shadow-sm">
@@ -134,7 +135,7 @@ export default function Home() {
           </div>
           <button 
             onClick={() => {
-              // Executa o logout limpando com segurança os cookies do servidor
+              // Executa o logout limpando os cookies diretamente no servidor
               fetch("/api/trpc/auth.logout", { method: "POST" }).then(() => {
                 window.location.reload();
               });
