@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { User, Lock, Fuel, LogOut, Plus, List, BarChart3 } from "lucide-react";
@@ -10,20 +10,15 @@ export default function Home() {
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Verifica se o usuário já possui sessão ativa
-  const { data: session, isLoading: sessionLoading, refetch } = trpc.auth.me.useQuery(undefined, {
+  // 1. Corrigido: Removido 'onError' do useQuery (não é mais suportado nas versões novas)
+  const { data: session, isLoading: sessionLoading, refetch, isError } = trpc.auth.me.useQuery(undefined, {
     retry: false,
-    // Evita que o erro de "não logado" apareça como um erro crítico no console
-    onError: () => {
-      console.log("Nenhuma sessão ativa encontrada.");
-    }
   });
 
-  // Mutação para realizar o login via tRPC
+  // 2. Mutação de login
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async (data) => {
-      // Ajuste 'data.success' conforme o retorno real do seu backend
-      if (data && (data.success || data.id)) {
+      if (data && data.success) {
         await refetch();
         window.location.reload();
       } else {
@@ -33,6 +28,7 @@ export default function Home() {
     },
     onError: (err) => {
       setLoading(false);
+      console.error("Erro no login:", err);
       setErrorMsg(err.message || "Erro ao conectar com o servidor.");
     }
   });
@@ -42,7 +38,6 @@ export default function Home() {
     setErrorMsg("");
     setLoading(true);
 
-    // Chama a mutação do tRPC - isso lida automaticamente com a serialização e cookies
     loginMutation.mutate({
       username: username.trim(),
       password: password.trim(),
@@ -51,8 +46,6 @@ export default function Home() {
 
   const handleLogout = async () => {
     try {
-      // Se você tiver uma mutation de logout no tRPC, use-a aqui. 
-      // Caso contrário, mantemos o fetch simples ou adaptamos para trpc.auth.logout.useMutation
       await fetch("/api/trpc/auth.logout", { method: "POST" });
       window.location.reload();
     } catch (err) {
@@ -68,7 +61,6 @@ export default function Home() {
     );
   }
 
-  // Se não houver sessão, exibe a tela de login
   if (!session) {
     return (
       <div className="min-h-screen bg-[#FAF9F6] flex flex-col items-center justify-center px-4 py-8">
@@ -140,7 +132,6 @@ export default function Home() {
     );
   }
 
-  // Se estiver logado, exibe o Dashboard
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="sticky top-0 z-10 bg-white border-b border-slate-200 shadow-sm">
