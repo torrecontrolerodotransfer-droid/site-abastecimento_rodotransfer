@@ -1,22 +1,28 @@
 import { useState } from "react";
-import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { User, Lock, Fuel, LogOut, Plus, List, BarChart3 } from "lucide-react";
-// Importação nativa e segura do trpc do próprio projeto Lovable
-import { trpc } from "@/utils/trpc"; 
+// Importação exata e segura baseada no seu main.tsx
+import { trpc } from "@/lib/trpc"; 
 
 export default function Home() {
-  const { user, isAuthenticated, logout } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Usando a estrutura de mutação correta que o seu back-end tRPC espera
+  // Consulta nativa do tRPC para verificar se a sessão por Cookie está ativa
+  const { data: session, isLoading: sessionLoading, refetch } = trpc.auth.me.useQuery(undefined, {
+    retry: false,
+  });
+
+  // Mutação oficial de login mapeada diretamente do seu appRouter do servidor
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: () => {
-      window.location.reload();
+      // Atualiza o estado da query de sessão e recarrega a página
+      refetch().then(() => {
+        window.location.reload();
+      });
     },
     onError: (err) => {
       setLoading(false);
@@ -29,14 +35,25 @@ export default function Home() {
     setErrorMsg("");
     setLoading(true);
 
-    // Dispara a mutação nativa envelopada perfeitamente para o servidor
+    // Envia os dados estruturados no formato exato que o Zod espera no servidor
     loginMutation.mutate({ username, password });
   };
 
-  if (!isAuthenticated) {
+  // Tela de carregamento enquanto o servidor verifica os cookies de sessão
+  if (sessionLoading) {
+    return (
+      <div className="min-h-screen bg-[#FAF9F6] flex items-center justify-center">
+        <p className="text-slate-500 font-medium animate-pulse">Carregando sistema...</p>
+      </div>
+    );
+  }
+
+  // Se o servidor retornar nulo ou indefinido, exibe a tela de login (Bege)
+  if (!session) {
     return (
       <div className="min-h-screen bg-[#FAF9F6] flex flex-col items-center justify-center px-4 py-8">
         <div className="max-w-md w-full space-y-6 text-center">
+          
           <div className="flex justify-center mb-2">
             <img 
               src="https://i.ibb.co/RG2bmMsv/Logo-branca.png" 
@@ -64,7 +81,7 @@ export default function Home() {
                   <input
                     type="text"
                     required
-                    placeholder="Digite seu usuário"
+                    placeholder="Ex: RODOTRANSFER"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     className="w-full bg-white border border-slate-300 rounded-lg py-2 pl-10 pr-4 text-slate-800 focus:outline-none focus:border-[#E9967A] focus:ring-1 focus:ring-[#E9967A]"
@@ -101,6 +118,7 @@ export default function Home() {
     );
   }
 
+  // Se a sessão existir, libera o Painel Principal (Dashboard)
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="sticky top-0 z-10 bg-white border-b border-slate-200 shadow-sm">
@@ -111,10 +129,18 @@ export default function Home() {
             </div>
             <div>
               <h1 className="text-base font-bold text-slate-900">Sistema de Abastecimento</h1>
-              <p className="text-xs text-slate-500">Operador: {user?.name || "Rodotransfer"}</p>
+              <p className="text-xs text-slate-500">Operador: {session.name || "Rodotransfer Operador"}</p>
             </div>
           </div>
-          <button onClick={() => logout()} className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+          <button 
+            onClick={() => {
+              // Limpa os cookies chamando a rota de logout nativa do back-end
+              fetch("/api/trpc/auth.logout", { method: "POST" }).then(() => {
+                window.location.reload();
+              });
+            }} 
+            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+          >
             <LogOut className="w-5 h-5 text-slate-600" />
           </button>
         </div>
