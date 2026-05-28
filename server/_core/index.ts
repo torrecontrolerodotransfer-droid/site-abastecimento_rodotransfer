@@ -176,7 +176,7 @@ app.get("*", (req, res) => {
   res.sendFile(path.join(publicPath, "index.html"));
 });
 
-const PORT = PORT = process.env.PORT || 10000;
+const PORT =  process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`🚀 Servidor de Produção 100% alinhado na porta ${PORT}`);
 });
