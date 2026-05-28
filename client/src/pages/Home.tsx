@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { User, Lock, Fuel, LogOut, Plus, List, BarChart3 } from "lucide-react";
-// Importação exata e segura baseada no seu main.tsx
+// Importação oficial e segura que descobrimos no seu main.tsx
 import { trpc } from "@/lib/trpc"; 
 
 export default function Home() {
@@ -11,7 +11,7 @@ export default function Home() {
   const [errorMsg, setErrorMsg] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Consulta nativa do tRPC para verificar se a sessão por Cookie está ativa
+  // Consulta nativa do tRPC para verificar se o cookie de sessão está ativo no navegador
   const { data: session, isLoading: sessionLoading, refetch } = trpc.auth.me.useQuery(undefined, {
     retry: false,
   });
@@ -19,7 +19,7 @@ export default function Home() {
   // Mutação oficial de login mapeada diretamente do seu appRouter do servidor
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: () => {
-      // Atualiza o estado da query de sessão e recarrega a página
+      // Atualiza o estado da query de sessão e recarrega a página autenticada
       refetch().then(() => {
         window.location.reload();
       });
@@ -48,7 +48,7 @@ export default function Home() {
     );
   }
 
-  // Se o servidor retornar nulo ou indefinido, exibe a tela de login (Bege)
+  // Se o servidor retornar que não há sessão ativa, exibe a tela de login (Padrão Rodotransfer)
   if (!session) {
     return (
       <div className="min-h-screen bg-[#FAF9F6] flex flex-col items-center justify-center px-4 py-8">
@@ -118,7 +118,7 @@ export default function Home() {
     );
   }
 
-  // Se a sessão existir, libera o Painel Principal (Dashboard)
+  // Se a sessão existir, libera o Painel Principal com os recursos do sistema
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="sticky top-0 z-10 bg-white border-b border-slate-200 shadow-sm">
@@ -134,7 +134,7 @@ export default function Home() {
           </div>
           <button 
             onClick={() => {
-              // Limpa os cookies chamando a rota de logout nativa do back-end
+              // Executa o logout limpando com segurança os cookies do servidor
               fetch("/api/trpc/auth.logout", { method: "POST" }).then(() => {
                 window.location.reload();
               });
