@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { User, Lock, Fuel, LogOut, Plus, List, BarChart3 } from "lucide-react";
 
 export default function Home() {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, login, logout } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
@@ -17,39 +17,19 @@ export default function Home() {
     setLoading(true);
 
     try {
-      // Requisição direta por rota relativa, eliminando o erro de URL do tRPC
-      const response = await fetch("/api/trpc/auth.login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          json: { username, password }
-        }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok && !data.error) {
-        window.location.reload();
-      } else {
-        const errorDetail = data.error?.json?.message || "Usuário ou senha incorretos.";
-        setErrorMsg(errorDetail);
-        setLoading(false);
-      }
-    } catch (err) {
+      // Utiliza o método de login nativo injetado pelo contexto de autenticação do projeto
+      await login(username, password);
+      window.location.reload();
+    } catch (err: any) {
       setLoading(false);
-      setErrorMsg("Erro ao conectar com o servidor.");
+      setErrorMsg(err?.message || "Usuário ou senha incorretos.");
     }
   };
 
-  // DESIGN CORRETO: Fundo Bege
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#FAF9F6] flex flex-col items-center justify-center px-4 py-8">
         <div className="max-w-md w-full space-y-6 text-center">
-          
-          {/* LOGOTIPO CENTRALIZADO COM FILTRO ESCURO */}
           <div className="flex justify-center mb-2">
             <img 
               src="https://i.ibb.co/RG2bmMsv/Logo-branca.png" 
@@ -100,7 +80,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* BOTÃO CORAL / SALMÃO */}
               <Button
                 type="submit"
                 disabled={loading}
